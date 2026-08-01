@@ -34,10 +34,11 @@ jobs:
 
       # ── 2. Import project resources (required for headless) ──
       - name: Import Godot resources
-        run: godot --headless --import --quit 2>&1 || true
-        # Note: --import may return non-zero on some setups;
-        # we allow it to proceed as long as .import files are created.
-        echo ">>> Import done. Checking .import files:"
+        run: |
+          godot --headless --import --quit 2>&1 || true
+          # Note: --import may return non-zero on some setups;
+          # we allow it to proceed as long as .import files are created.
+          echo ">>> Import done. Checking .import files:"
           find . -name "*.import" | head -10 || echo "(no .import files yet)"
 
       # ── 3. Run GUT headless smoke ───────────────────────────
