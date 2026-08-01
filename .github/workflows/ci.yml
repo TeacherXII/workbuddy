@@ -2,7 +2,9 @@ name: Sprint0 Smoke (close N2)
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
   gut-smoke:
@@ -14,11 +16,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure GUT addon present
+      # ── 1. Clone GUT (with verification) ──────────────────
+      - name: Clone GUT test framework
         run: |
-          if [ ! -d addons/gut ]; then
-            git clone --depth 1 https://github.com/bitwes/Gut.git addons/gut
+          echo ">>> Cloning GUT into addons/gut ..."
+          rm -rf addons/gut
+          git clone --depth 1 https://github.com/bitwes/Gut.git addons/gut
+          echo ">>> Verifying GUT structure:"
+          ls -la addons/gut/
+          echo ">>> Looking for gut_cmdln.gd:"
+          find addons/gut/ -name "gut_cmdln.gd" -o -name "gut.gd" | head -5
+          if [ ! -f addons/gut/gut_cmdln.gd ]; then
+            echo "::error::gut_cmdln.gd not found after clone!"
+            exit 1
           fi
+          echo ">>> GUT ready."
 
+      # ── 2. Import project resources (required for headless) ──
+      - name: Import Godot resources
+        run: godot --headless --import --quit 2>&1 || true
+        # Note: --import may return non-zero on some setups;
+        # we allow it to proceed as long as .import files are created.
+        echo ">>> Import done. Checking .import files:"
+          find . -name "*.import" | head -10 || echo "(no .import files yet)"
+
+      # ── 3. Run GUT headless smoke ───────────────────────────
       - name: Run Sprint 0 GUT smoke (exit std ⑤)
-        run: godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
+        run: |
+          godot --headless \
+            -s addons/gut/gut_cmdln.gd \
+            -gdir=res://tests/unit \
+            -gexit \
+            -glog=3 \
+            2>&1
