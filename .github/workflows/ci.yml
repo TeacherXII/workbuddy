@@ -16,18 +16,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── 1. Clone GUT (with verification) ──────────────────
+      # ── 1. Clone GUT (flatten nested addons/gut structure) ─────
       - name: Clone GUT test framework
         run: |
-          echo ">>> Cloning GUT into addons/gut ..."
-          rm -rf addons/gut
-          git clone --depth 1 https://github.com/bitwes/Gut.git addons/gut
+          echo ">>> Cloning GUT repo to temp ..."
+          rm -rf /tmp/gut_repo addons/gut
+          git clone --depth 1 https://github.com/bitwes/Gut.git /tmp/gut_repo
+          echo ">>> Flattening: GUT repo has inner addons/gut/ layout"
+          echo ">>> Moving /tmp/gut_repo/addons/gut -> addons/gut ..."
+          cp -r /tmp/gut_repo/addons/gut addons/gut
+          rm -rf /tmp/gut_repo
           echo ">>> Verifying GUT structure:"
           ls -la addons/gut/
-          echo ">>> Looking for gut_cmdln.gd:"
-          find addons/gut/ -name "gut_cmdln.gd" -o -name "gut.gd" | head -5
+          echo ">>> Checking for gut_cmdln.gd at addons/gut/:"
           if [ ! -f addons/gut/gut_cmdln.gd ]; then
-            echo "::error::gut_cmdln.gd not found after clone!"
+            echo "::error::gut_cmdln.gd not found at addons/gut/gut_cmdln.gd!"
+            find addons/gut/ -name "gut_cmdln.gd" 2>/dev/null || true
             exit 1
           fi
           echo ">>> GUT ready."
