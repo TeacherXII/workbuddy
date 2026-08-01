@@ -21,6 +21,7 @@ jobs:
         run: |
           echo ">>> Cloning GUT repo to temp ..."
           rm -rf /tmp/gut_repo addons/gut
+          mkdir -p addons
           git clone --depth 1 https://github.com/bitwes/Gut.git /tmp/gut_repo
           echo ">>> Flattening: GUT repo has inner addons/gut/ layout"
           echo ">>> Moving /tmp/gut_repo/addons/gut -> addons/gut ..."
