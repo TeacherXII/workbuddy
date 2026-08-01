@@ -1,0 +1,14 @@
+; Engine configuration file. Godot 4.4.
+; ASHEN STEP — Sprint 0 vertical slice (Phase 5).
+config_version=5
+
+[application]
+
+config/name="ASHEN STEP Sprint0"
+run/main_scene="res://src/main/sprint0.tscn"
+config/features=PackedStringArray("4.4")
+
+[renderers]
+
+renderer/1="ForwardPlus"
+; GUT addon 安装见 tests/README.md；本任务不下载二进制。

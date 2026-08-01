@@ -1,0 +1,23 @@
+# ===== Godot 4.x editor cache (never commit) =====
+.godot/
+
+# ===== Godot export builds =====
+/exports/
+*.pck
+
+# ===== GUT test framework =====
+# CI fetches GUT at runtime (see .github/workflows/ci.yml).
+# Local dev: git clone --depth 1 https://github.com/bitwes/Gut.git addons/gut
+addons/gut/
+
+# ===== OS / editor noise =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Studio tool-internal logs (not game content) =====
+.workbuddy/
+
+# ===== Python / misc =====
+__pycache__/
+*.pyc

@@ -1,0 +1,24 @@
+name: Sprint0 Smoke (close N2)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gut-smoke:
+    name: GUT headless smoke (Sprint 0)
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure GUT addon present
+        run: |
+          if [ ! -d addons/gut ]; then
+            git clone --depth 1 https://github.com/bitwes/Gut.git addons/gut
+          fi
+
+      - name: Run Sprint 0 GUT smoke (exit std ⑤)
+        run: godot --headless -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
