@@ -165,3 +165,63 @@ func test_commit_emits_both_signals_with_payload():
 		"commit must emit player_step_committed")
 	assert_signal_emitted(_step, "sound_emitted",
 		"commit must emit sound_emitted (footfall)")
+
+
+func test_noise_radius_all_surfaces():
+	# E03-S5: noise_radius = NOISE_BASE(5.0) * surface_factor * gait_factor.
+	# Covers the MOSS surface (proposed 0.5, flagged GDD gap) plus the Sprint 0
+	# STONE/GRASS/METAL set.
+	_step.gait = "SNEAK"
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.5), "MOSS")
+	assert_almost_eq(_captured_step.get("noise_radius", -1.0), 1.25, 0.0001,
+		"SNEAK+MOSS = 5.0 * 0.5 * 0.5 = 1.25")
+	_step.tick_real(0.13)
+
+	_step.gait = "WALK"
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.5), "GRASS")
+	assert_almost_eq(_captured_step.get("noise_radius", -1.0), 3.5, 0.0001,
+		"WALK+GRASS = 5.0 * 0.7 * 1.0 = 3.5")
+	_step.tick_real(0.13)
+
+	_step.gait = "RUN"
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.5), "METAL")
+	assert_almost_eq(_captured_step.get("noise_radius", -1.0), 12.0, 0.0001,
+		"RUN+METAL = 5.0 * 1.2 * 2.0 = 12.0")
+
+
+func test_gait_run_noise_and_step():
+	# E03-S6: switching to RUN applies RUN's distance / step_duration / noise
+	# factor. RUN is a HIGH-COST deliberate option (10 m noise), not a free sprint.
+	_step.gait = "RUN"
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 4.0), "STONE")
+	assert_eq(_captured_step.get("gait"), "RUN", "commit must record RUN gait")
+	assert_almost_eq(_captured_step.get("distance", -1.0), 4.0, 0.0001,
+		"RUN step distance must be 4.0 (max_step)")
+	assert_almost_eq(_captured_step.get("step_duration", -1.0), 0.24, 0.0001,
+		"RUN step_duration must be 0.24 (base)")
+	assert_almost_eq(_captured_step.get("noise_radius", -1.0), 10.0, 0.0001,
+		"RUN+STONE noise = 5.0 * 1.0 * 2.0 = 10.0 (high-cost)")
+	# T-02 / ADR-003: at FOCUS (0.25) the same step plays ~4x slower in wall-clock.
+	assert_almost_eq(_step.effective_step_duration(0.25), 0.96, 0.0001,
+		"RUN step_duration scales 1/time_scale (0.24/0.25 = 0.96 at FOCUS)")
+
+
+func test_footfall_vfx_present():
+	# E03-S7: footfall VFX contract, headless-safe.
+	# 1) surface is written into the payload for E06-S2 consumption.
+	_step.gait = "WALK"
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 2.0), "MOSS")
+	assert_eq(_captured_step.get("surface"), "MOSS",
+		"payload must carry surface for E06-S2")
+	# 2) ghost_trail is capped at MAX_GHOST (<= 6) regardless of VFX.
+	for i in range(10):
+		_step.tick_real(0.13)
+		_step.commit(Vector3(0, 0, float(i)), Vector3(0, 0, float(i + 1)), "STONE")
+	assert_true(_step._ghost_trail.size() <= StepCommit.MAX_GHOST,
+		"ghost_trail must stay <= MAX_GHOST (6)")
+	assert_eq(_step._ghost_trail.size(), StepCommit.MAX_GHOST,
+		"ghost_trail must be exactly capped at 6")
+	# 3) Headless: VFX node creation must be skipped (StepCommit not in a live
+	# tree) so the commit never crashes without a scene tree.
+	assert_false(_step.is_vfx_enabled(),
+		"VFX must be skipped when StepCommit is not inside a live tree (headless-safe)")

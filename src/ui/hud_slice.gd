@@ -96,7 +96,7 @@ func _on_vision_stimulus(_guard_id: int, _target: Node, visibility: float) -> vo
 		_suspicion.value = clampf(visibility * 100.0, 0.0, 100.0)
 
 
-func _on_suspicion_changed(_guard_id: int, value: float) -> void:
+func _on_suspicion_changed(_guard_id: int, value: float, _tier: int) -> void:
 	if _suspicion != null:
 		_suspicion.value = clampf(value, 0.0, 100.0)
 

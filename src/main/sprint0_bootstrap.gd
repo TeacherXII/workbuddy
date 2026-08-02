@@ -106,7 +106,19 @@ func _on_vision_stimulus(guard_id: int, _target: Node, visibility: float) -> voi
 	if _bus == null:
 		return
 	var suspicion := clampf(visibility * 100.0, 0.0, 100.0)
-	_bus.suspicion_changed.emit(guard_id, suspicion)
+	# E01-S9: suspicion_changed now carries SusTier (3rd arg). Pre-FSM (Sprint 0)
+	# we derive a provisional tier from the continuous value; E08-S2 replaces
+	# this with the real 25/60/10 threshold logic.
+	_bus.suspicion_changed.emit(guard_id, suspicion, _suspicion_tier(suspicion))
+
+
+func _suspicion_tier(value: float) -> int:
+	# Provisional tier mapping until E08-S2 FSM lands (thresholds 25/60/10).
+	if value >= 60.0:
+		return EventBus.SusTier.ALERT
+	if value >= 25.0:
+		return EventBus.SusTier.SUSPICIOUS
+	return EventBus.SusTier.CALM
 
 
 func _process(_delta: float) -> void:

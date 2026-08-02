@@ -22,8 +22,15 @@
   | WALK | 2.5 | 0.38 | 1.0 |
   | RUN | 4.0 | 0.24 | 2.0 |
 - **噪声半径公式**（输出给 ④）：`noise_radius = BASE(5.0m) × surface_factor × gait_factor`
-  - `surface_factor`：`STONE 1.0` | `GRASS 0.7` | `METAL 1.2`（**Sprint 0 裁决：表面分类统一为 `STONE/GRASS/METAL`，与实现 `src/game/step_commit.gd::SURFACE_FACTOR` 对齐**；原 GDD 分类 `WOOD/MOSS` 废弃，映射 `WOOD≈STONE`、`MOSS≈GRASS`）。
-  - 例：SNEAK+STONE=2.5m；WALK+STONE=5.0m；RUN+STONE=10.0m（RUN 为 Tier2，未进 Sprint 0 切片；值随 STONE 由 1.2→1.0 同步刷新）。
+  - `surface_factor`（**权威玩法集 = `STONE / GRASS / METAL / MOSS`**；单一事实来源 = `src/game/step_commit.gd::SURFACE_FACTOR` 与 `system-breakdown.md` §2.3，二者须保持一致）：
+    | 玩法 Surface | surface_factor | 声学含义 |
+    | --- | --- | --- |
+    | STONE | 1.0 | 基准硬面（石板） |
+    | GRASS | 0.7 | 中软，吸音 |
+    | METAL | 1.2 | 最响（金属/铁栅） |
+    | MOSS | 0.5 | 最静，苔吸音（比 GRASS 0.7 更安静；E03-S5 新增为独立玩法 surface，非旧「MOSS≈GRASS」近似） |
+  - **资产材质 → 玩法 Surface 映射（消除 taxonomy/acoustic 混用）**：资产侧材质 taxonomy 含 `WOOD / MOSS / STONE / ...`，但玩法噪声只认上述 4 个。映射——`WOOD → STONE`（木地板按 STONE 1.0 计；旧 Sprint 0「WOOD≈STONE」降格为「资产→玩法」映射，WOOD 不再为玩法集成员）、`MOSS 资产 = MOSS 玩法`（0.5）、`STONE / GRASS / METAL 资产 = 同玩法 Surface`。**资产 metadata 的 `STONE 1.2 / WOOD 1.0 / MOSS 0.5` 系材质命名/美术侧权重，绝非玩法 SURFACE_FACTOR**（详尽映射表见 `asset-manifest.md` §3.1）。
+  - 例：SNEAK+STONE=2.5m；WALK+STONE=5.0m；RUN+STONE=10.0m；SNEAK+MOSS=1.25m（=5.0×0.5×0.5，最静落足）。
 - **读间隙纪律**：仅当状态机为 `IDLE` 才接受下一次提交；上一步须 `RECOVERED` 完成 → 天然杜绝连击（概念红线）。最小 commit 冷却（真实时间）`≥0.12s` 兜底。
 - **落点约束**：落点须在 `max_step` 内、非实心遮挡、非守卫身位；越界则预演显红（不靠纯色，见 §7）。
 
@@ -43,7 +50,7 @@ class StepCommit:
 struct StepCommitPayload:           # → player_step_committed
     var from: Vector3
     var to: Vector3
-    var surface: Surface             # STONE/GRASS/METAL（Sprint 0 裁决统一分类；废弃 WOOD/MOSS，映射 WOOD≈STONE、MOSS≈GRASS）
+    var surface: Surface             # 权威玩法集 {STONE, GRASS, METAL, MOSS}（系数见 §2；WOOD 仅资产材质，映射 STONE，见 asset-manifest §3.1）
     var gait: Gait
     var noise_radius: float
 ```

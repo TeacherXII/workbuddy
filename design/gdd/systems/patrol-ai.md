@@ -28,7 +28,7 @@
 ## 3. 数据模型与状态
 ```gdscript
 enum GuardState { CALM, SUSPICIOUS, ALERT, SEARCH, RETURN }
-enum SusTier { NONE, SUSPICIOUS, ALERT, SEARCH }
+enum SusTier { CALM, SUSPICIOUS, ALERT, SEARCH }   # CALM = 可疑度 < 25（对齐 system-breakdown §2.3 / E08-S2 阈值 25/60/10；旧 NONE 作废）
 
 class GuardBrain:                 # L3
     var fsm: GuardState = CALM

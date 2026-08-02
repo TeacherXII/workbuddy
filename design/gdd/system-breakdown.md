@@ -61,11 +61,11 @@
 | 类型 | 定义 |
 | --- | --- |
 | `Gait` | `SNEAK \| WALK \| RUN` |
-| `Surface` | `STONE \| WOOD \| MOSS`（MOSS = 苔地/地毯，最低噪声） |
+| `Surface` | `STONE \| GRASS \| METAL \| MOSS`（玩法噪声权威集；系数 STONE 1.0 / GRASS 0.7 / METAL 1.2 / MOSS 0.5，见 `stealth-step-commit` §2；`WOOD` 仅资产材质，映射 STONE） |
 | `SoundSource` | `FOOTFALL \| DECOY \| TRAP \| AMBIENT` |
 | `LightState` | `LIT \| EXTINGUISHED` |
 | `GuardState` | `CALM \| SUSPICIOUS \| ALERT \| SEARCH \| RETURN` |
-| `SusTier` | `NONE \| SUSPICIOUS \| ALERT \| SEARCH` |
+| `SusTier` | `CALM \| SUSPICIOUS \| ALERT \| SEARCH`（CALM = 可疑度 < 25；与 E08-S2 阈值 25/60/10 对齐；SEARCH 由 E08 FSM 在丢失目标后进入，非连续阈值带成员） |
 | `TimeMode` | `FLOWING \| FOCUS \| PAUSED` |
 | `LightLevel` | `float[0..1]`，由 ⑤ `get_light_level(pos)` 提供 |
 

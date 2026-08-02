@@ -144,14 +144,22 @@ res://arts/
 | 模块 | 唯一件数 | 命名示例 | 材质归属（art-bible §5） | LOD |
 | --- | --- | --- | --- | --- |
 | 墙（直/角/带拱/柱基） | 6 | `env_wall_straight_4m_lod0.tscn` | 石 `#2A2A30`+冷补 `#3E5C76` | 0/1/2 |
-| 地（石板/木/苔，按 surface_factor） | 3+变体 | `env_floor_flagstone_stone_lod0.tscn` | 石/木/苔（art-bible §5.1） | 0/1/2 |
+| 地（石板/木/苔 → 玩法 STONE/STONE/MOSS，按 §2.3 资产材质→玩法 Surface 映射） | 3+变体 | `env_floor_flagstone_stone_lod0.tscn` | 石/木/苔（art-bible §5.1） | 0/1/2 |
 | 柱（瘦/壮/残） | 3 | `env_column_slim_lod0.tscn` | 石 | 0/1/2 |
 | 拱（素/饰/毁） | 3 | `env_arch_ornate_lod0.tscn` | 石 | 0/1/2 |
 | 台阶/平台 | 2 | `env_stair_flight_lod0.tscn` | 石 | 0/1/2 |
 | 长椅/祭坛/滴水兽装饰 | 4 | `env_pew_lod0.tscn` | 木/石 | 0/1/2 |
 
 - **地面光照遮罩着色器**（`shd_ground_lightmask.gdshader`，art-bible §3.1 意象④）：接收 `LightLevel` 遮罩实时绘制光池（暖 `#C8862F`）/ 阴影（冷 `#10141C`/`#3E5C76`）高对比边界——潜行语言主舞台。由 ⑤ cover-shadow 系统驱动（GDD 引用）。
-- **surface_factor 对接**：地面材质须带 `STONE 1.2 / WOOD 1.0 / MOSS 0.5` 元数据（stealth-step-commit §2 噪声公式），供落足噪声判定。
+- **surface 元数据对接（资产材质 → 玩法 Surface 映射）**：地面/踏面资产材质须带 `surface` 元数据标签（供落足噪声判定），但**资产 metadata 数值 ≠ 玩法 SURFACE_FACTOR**。权威玩法系数见 `stealth-step-commit` §2 / `system-breakdown` §2.3（单一事实来源）：`SURFACE_FACTOR = {STONE 1.0, GRASS 0.7, METAL 1.2, MOSS 0.5}`。资产侧材质 taxonomy 与玩法集映射如下（本表仅供资产打标签，**禁止把下列「权重」当作玩法乘子写入噪声逻辑**）：
+  | 资产材质（taxonomy） | 玩法 Surface | 玩法系数 | 说明 |
+  | --- | --- | --- | --- |
+  | `STONE` | STONE | 1.0 | 石板/石地 |
+  | `WOOD` | STONE | 1.0 | **木地板按 STONE 计**（旧 Sprint 0「WOOD≈STONE」降格为资产→玩法映射；资产侧原 `WOOD 1.0` 权重仅美术命名，非玩法乘子） |
+  | `MOSS` | MOSS | 0.5 | 苔地/地毯，最静 |
+  | `GRASS` | GRASS | 0.7 | 草径/泥地 |
+  | `METAL` | METAL | 1.2 | 铁栅/金属台 |
+  - **资产 metadata 旧值 `STONE 1.2 / WOOD 1.0 / MOSS 0.5` 作废为「材质命名权重」**：其中 MOSS 0.5 与玩法巧合一致；`STONE 1.2` 与玩法 `1.0` **不一致**，以玩法 GDD `1.0` 为准（声环直接吃玩法系数）；资产层切勿将 `1.2` 写入噪声逻辑。
 
 ### 3.2 可交互物（Interactables，GDD `interactables` §2）
 | 物件 | 类型 | 命名 | 视觉暗示（art-bible §4.2） | 事件派发（GDD） |
