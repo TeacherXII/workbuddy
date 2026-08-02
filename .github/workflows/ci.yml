@@ -61,7 +61,8 @@ jobs:
             -gexit \
             -glog=3 \
             > gut_output.txt 2>&1 || true
-          SUMMARY=$(grep -E "^(Scripts|Tests|Passing|Failing)" gut_output.txt 2>/dev/null \
+          SUMMARY=$(tail -n 20 gut_output.txt | grep -Ei "(scripts|tests|passing|failing)[[:space:]]*[:=]?[[:space:]]*[0-9]+" 2>/dev/null \
+            | sed -E 's/^[[:space:]]+//' \
             | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ *$//')
           if [ -z "$SUMMARY" ]; then SUMMARY="GUT output not parsed"; fi
           DESC="GUT: $SUMMARY"
