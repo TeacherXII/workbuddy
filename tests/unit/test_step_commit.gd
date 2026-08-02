@@ -114,7 +114,7 @@ func test_focus_exit_restores_flowing():
 
 func test_commit_cooldown_uses_real_time_not_scaled():
 	# E03-S1 + E02-S3 + ADR-003 risk4: cooldown uses WALLCLOCK, not scaled delta.
-	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.0))
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.0), "STONE")
 	assert_false(_step.can_commit(), "must not accept a second commit during cooldown")
 	_step.tick_real(0.13)  # 0.13s of REAL time passes (regardless of time_scale)
 	assert_true(_step.can_commit(), "cooldown (0.12s real) must have elapsed")
@@ -135,11 +135,11 @@ func test_exposure_grace_1_2s_triggers_soft_fail():
 
 func test_non_idle_rejects_commit():
 	# E03-S1: only IDLE accepts a commit; RECOVERING must be rejected (no combo).
-	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.0))
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.0), "STONE")
 	assert_eq(_step.state, "RECOVERING", "first commit moves to RECOVERING")
 	_commit_count = 0
 	_step.player_step_committed.connect(_count_commit)
-	_step.commit(Vector3.ZERO, Vector3(0, 0, 2.0))  # must be ignored (not IDLE)
+	_step.commit(Vector3.ZERO, Vector3(0, 0, 2.0), "STONE")  # must be ignored (not IDLE)
 	assert_eq(_commit_count, 0, "second commit while RECOVERING must be ignored")
 	_step.player_step_committed.disconnect(_count_commit)
 
