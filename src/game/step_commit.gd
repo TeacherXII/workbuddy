@@ -108,7 +108,11 @@ func _spawn_footfall_vfx(from: Vector3, to: Vector3, surface: String) -> void:
 	if not is_inside_tree():
 		return
 	if _vfx == null:
-		_vfx = FootfallVFX.new()
+		var vfx_script := load("res://src/game/footfall_vfx.gd")
+		if vfx_script == null:
+			push_warning("ASHEN STEP: footfall_vfx.gd not found, skipping VFX spawn")
+			return
+		_vfx = vfx_script.new()
 		add_child(_vfx)
 	_vfx.spawn_landing_glow(to)
 	_vfx.emit_foley(surface)
