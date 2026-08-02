@@ -69,33 +69,17 @@ jobs:
           DESC="GUT: $SUMMARY"
           echo ">>> GUT summary: $DESC"
           printf '%s' "$DESC" > "${GITHUB_WORKSPACE}/gut_summary.txt"
-          # Per-file detail: extract each test script's pass/fail/error counts.
-          # GUT -glog=3 outputs per-script sections with "Passing/Failing/Error" lines.
-          perl -0777 -ne '
-            while (/^(test_\S+\.gd)\n(.*?)(?=^test_\S+\.gd|\Z)/gsm) {
-              my $f = $1; my $body = $2;
-              my ($p,$e,$err) = (0,0,0);
-              $p = $1 if $body =~ /passing\s*:\s*(\d+)/i;
-              $e = $1 if $body =~ /failing\s*:\s*(\d+)/i;
-              $err = $1 if $body =~ /error(s?)\s*:\s*(\d+)/i;
-              printf "%s  P:%d F:%d E:%d\n", $f, $p, $e, $err;
-            }
-          ' gut_output.txt > "${GITHUB_WORKSPACE}/gut_detail.txt" 2>/dev/null || true
-          # Build a condensed per-file string for commit status description.
-          DETAIL=$(perl -0777 -ne '
-            while (/^(test_(\S+))\.gd\n(.*?)(?=^test_\S+\.gd|\Z)/gsm) {
-              my $abbr = substr($2, 0, 8);
-              my $body = $3;
-              my ($p,$e,$err) = (0,0,0);
-              $p = $1 if $body =~ /passing\s*:\s*(\d+)/i;
-              $e = $1 if $body =~ /failing\s*:\s*(\d+)/i;
-              $err = $1 if $body =~ /error(s?)\s*:\s*(\d+)/i;
-              printf "%s %d/%d/%d ", $abbr, $p, $e, $err;
-            }
-          ' gut_output.txt 2>/dev/null)
-          echo ">>> Condensed detail: $DETAIL"
-          printf '%s' "GUT: $SUMMARY | $DETAIL" > "${GITHUB_WORKSPACE}/gut_summary.txt"
-          echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt (with per-file detail)"
+          # Surface actual error / failure text so the orchestrator can read the
+          # crash location via the commit-status description (API-readable).
+          # GUT prints full resource paths (res://tests/unit/test_x.gd), not bare
+          # filenames, so we grep for error/failure markers directly.
+          ERR_TXT=$(grep -Ei "SCRIPT ERROR|Parse Error|FAILED|ERROR:" gut_output.txt 2>/dev/null \
+            | sed -E 's/^[[:space:]]+//' \
+            | head -8 | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-92)
+          if [ -z "$ERR_TXT" ]; then ERR_TXT="no explicit errors logged"; fi
+          echo ">>> Error context: $ERR_TXT"
+          printf '%s' "GUT: $SUMMARY | $ERR_TXT" > "${GITHUB_WORKSPACE}/gut_summary.txt"
+          echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt (with error context)"
           if echo "$SUMMARY" | grep -qE 'Failing[: ]+0([^0-9]|$)'; then
             echo "GUT reports zero failures — job passes."
             exit 0
@@ -128,11 +112,3 @@ jobs:
               context: 'gut-smoke'
             });
             console.log('Posted commit status ->', state, '|', desc);
-            // Log per-file detail for debugging.
-            const df = path.join(process.env.GITHUB_WORKSPACE, 'gut_detail.txt');
-            try {
-              const detail = fs.readFileSync(df, 'utf8').trim();
-              console.log('=== PER-FILE GUT DETAIL ===');
-              console.log(detail);
-              console.log('=== END DETAIL ===');
-            } catch (e2) { console.log('detail file not found:', e2.message); }
