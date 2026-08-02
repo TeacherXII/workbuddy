@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: barichello/godot-ci:4.4
+    permissions:
+      contents: read
+      statuses: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,29 +59,37 @@ jobs:
             2>&1 | tee gut_output.txt
 
       # ── 4. Post GUT summary as a public commit status ───────
-      # Lets the orchestrator read test counts via the anonymous
-      # statuses API (no token / no screenshots needed). Job stays
-      # red while GUT has failures; this step always runs.
+      # Robust approach: use actions/github-script, which runs on the
+      # runner HOST (not inside the godot-ci container) with built-in
+      # GITHUB_TOKEN auth — no curl/gh dependency inside the image.
+      # It reads the GUT output tee'd in step 3 from the workspace
+      # volume and posts it to the anonymous statuses API so the
+      # orchestrator can read test counts without tokens/screenshots.
+      # Job stays red while GUT has failures; this step always runs.
       - name: Post GUT summary as commit status
         if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ github.sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          SUMMARY=$(grep -E "^(Scripts|Tests|Passing|Failing)" gut_output.txt \
-            | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ *$//')
-          if [ -z "$SUMMARY" ]; then
-            SUMMARY="GUT output not parsed"
-          fi
-          STATE="failure"
-          if echo "$SUMMARY" | grep -Eq "Failing[[:space:]]+0"; then
-            STATE="success"
-          fi
-          echo ">>> Posting commit status: state=$STATE desc='$SUMMARY'"
-          curl -s -X POST \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${REPO}/statuses/${SHA}" \
-            -d "{\"state\":\"${STATE}\",\"description\":\"GUT: ${SUMMARY}\",\"context\":\"gut-smoke\"}"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const outPath = '${{ github.workspace }}/gut_output.txt';
+            let summary = 'GUT output not parsed';
+            let state = 'failure';
+            try {
+              const txt = fs.readFileSync(outPath, 'utf8');
+              const lines = txt.split('\n')
+                .filter(l => /^(Scripts|Tests|Passing|Failing)/.test(l));
+              summary = lines.join(' ').replace(/\s+/g, ' ').trim();
+              if (summary.match(/Failing\s+0/)) { state = 'success'; }
+            } catch (e) {
+              summary = 'GUT output file missing: ' + e.message;
+            }
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: state,
+              description: 'GUT: ' + summary,
+              context: 'gut-smoke'
+            });
+            console.log('Posted commit status -> state=' + state + ' desc="GUT: ' + summary + '"');
