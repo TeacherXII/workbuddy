@@ -19,10 +19,10 @@ jobs:
       # ── 1. Clone GUT (pin to Godot 4.x compatible release) ─────
       - name: Clone GUT test framework
         run: |
-          echo ">>> Cloning GUT (pinned to gut-v9.3.0 for Godot 4.4) ..."
+          echo ">>> Cloning GUT (pinned to v9.3.0 for Godot 4.4) ..."
           rm -rf /tmp/gut_repo addons/gut
           mkdir -p addons
-          git clone --depth 1 --branch gut-v9.3.0 https://github.com/bitwes/Gut.git /tmp/gut_repo
+          git clone --depth 1 --branch v9.3.0 https://github.com/bitwes/Gut.git /tmp/gut_repo
           echo ">>> Flattening: GUT repo has inner addons/gut/ layout"
           cp -r /tmp/gut_repo/addons/gut addons/gut
           rm -rf /tmp/gut_repo
