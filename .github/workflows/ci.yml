@@ -47,12 +47,12 @@ jobs:
           echo ">>> Import done. Checking .import files:"
           find . -name "*.import" | head -10 || echo "(no .import files yet)"
 
-      # ── 3. Run GUT headless smoke + post status (single container step) ──
-      # Everything lives in ONE step so we never rely on cross-step / cross-
-      # container output passing (GitHub does not propagate a container step's
-      # $GITHUB_OUTPUT to a host step). The container has python3 + egress +
-      # GITHUB_TOKEN, so we POST the commit status straight from here.
-      - name: Run Sprint 0 GUT smoke + post commit status
+      # ── 3. Run GUT headless smoke + write summary to workspace ──
+      # Container step outputs/env files do NOT propagate to host steps, but
+      # workspace files (bind-mounted volume) ARE visible to host steps. So we
+      # only run GUT + write the summary to $GITHUB_WORKSPACE here; the host
+      # step below reads that file and POSTs the commit status.
+      - name: Run Sprint 0 GUT smoke + write summary
         id: gut
         run: |
           godot --headless \
@@ -60,40 +60,43 @@ jobs:
             -gdir=res://tests/unit \
             -gexit \
             -glog=3 \
-            > gut_output.txt 2>&1
-          GUT_EXIT=$?
+            > gut_output.txt 2>&1 || true
           SUMMARY=$(grep -E "^(Scripts|Tests|Passing|Failing)" gut_output.txt 2>/dev/null \
             | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ *$//')
-          if [ -z "$SUMMARY" ]; then SUMMARY="GUT output not parsed (godot_exit=$GUT_EXIT)"; fi
+          if [ -z "$SUMMARY" ]; then SUMMARY="GUT output not parsed"; fi
           DESC="GUT: $SUMMARY"
           echo ">>> GUT summary: $DESC"
-
-          # Post commit status directly from the container (python3 + egress + GITHUB_TOKEN).
-          command -v python3 >/dev/null 2>&1 || { echo 'installing python3...'; apt-get update -qq && apt-get install -y python3; } || true
-          export DESC
-          python3 - <<'PY' || echo '::warning::status post failed'
-          import os, json, urllib.request
-          desc = os.environ.get('DESC', '')
-          token = os.environ.get('GITHUB_TOKEN', '')
-          sha = os.environ.get('GITHUB_SHA', '')
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          state = 'success' if ('Failing: 0' in desc or 'Failing 0' in desc) else 'failure'
-          body = json.dumps({'state': state, 'description': desc[:140], 'context': 'gut-smoke'}).encode()
-          req = urllib.request.Request(
-              f'https://api.github.com/repos/{repo}/statuses/{sha}',
-              data=body, method='POST',
-              headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'User-Agent': 'ci'})
-          try:
-              urllib.request.urlopen(req, timeout=20).read()
-              print('Posted commit status ->', state, '|', desc)
-          except Exception as e:
-              print('STATUS_POST_FAILED:', repr(e))
-          PY
-
-          # Enforce job red while GUT has failures.
+          printf '%s' "$DESC" > "${GITHUB_WORKSPACE}/gut_summary.txt"
+          echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt"
           if echo "$SUMMARY" | grep -qE 'Failing[: ]+0([^0-9]|$)'; then
             echo "GUT reports zero failures — job passes."
             exit 0
           fi
           echo "::error::GUT reports failing tests — job fails."
           exit 1
+
+      # ── 4. Post GUT summary as a public commit status (host step) ──
+      # Runs on the runner HOST (not the godot-ci container) with a reliable
+      # GITHUB_TOKEN, reads the summary file written by step 3 (workspace is
+      # shared between container + host), and POSTs it to the anonymous
+      # statuses API so the orchestrator can read test counts via API.
+      - name: Post GUT summary as commit status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const f = path.join(process.env.GITHUB_WORKSPACE, 'gut_summary.txt');
+            let desc = 'GUT summary file missing (infra issue)';
+            try { desc = fs.readFileSync(f, 'utf8').trim(); } catch (e) { console.log('read err', e.message); }
+            const state = (desc.includes('Failing: 0') || desc.includes('Failing 0')) ? 'success' : 'failure';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state,
+              description: desc.slice(0, 140),
+              context: 'gut-smoke'
+            });
+            console.log('Posted commit status ->', state, '|', desc);
