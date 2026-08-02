@@ -60,10 +60,9 @@ jobs:
           GUT_EXIT=$?
           SUMMARY=$(grep -E "^(Scripts|Tests|Passing|Failing)" gut_output.txt 2>/dev/null \
             | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ *$//')
-          if [ -z "$SUMMARY" ]; then SUMMARY="GUT output not parsed"; fi
+          if [ -z "$SUMMARY" ]; then SUMMARY="GUT output not parsed (godot_exit=$GUT_EXIT)"; fi
           echo "summary=GUT: $SUMMARY" >> "$GITHUB_OUTPUT"
           echo ">>> GUT summary: $SUMMARY"
-          exit $GUT_EXIT
 
       # ── 4. Post GUT summary as a public commit status ───────
       # Robust approach: use actions/github-script, which runs on the
@@ -82,7 +81,7 @@ jobs:
           script: |
             const summary = core.getInput('summary');
             let state = 'failure';
-            if (summary.match(/Failing\s+0/)) { state = 'success'; }
+            if (summary.match(/Failing[: ]+0([^0-9]|$)/)) { state = 'success'; }
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -92,3 +91,19 @@ jobs:
               context: 'gut-smoke'
             });
             console.log('Posted commit status -> state=' + state + ' desc="' + summary + '"');
+
+      - name: Enforce job status (red while GUT failing)
+        if: always()
+        run: |
+          SUMMARY="${{ steps.gut.outputs.summary }}"
+          echo "Resolved GUT summary: $SUMMARY"
+          if [ -z "$SUMMARY" ]; then
+            echo "::error::GUT summary output missing — infra issue."
+            exit 1
+          fi
+          if echo "$SUMMARY" | grep -qE 'Failing[: ]+0([^0-9]|$)'; then
+            echo "GUT reports zero failures — job passes."
+            exit 0
+          fi
+          echo "::error::GUT reports failing tests — job fails."
+          exit 1
