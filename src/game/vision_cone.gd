@@ -168,7 +168,7 @@ func attach_cone_vfx() -> MeshInstance3D:
 	c.a = CONE_VFX_ALPHA_MIN
 	mat.albedo_color = c
 	spot.material_override = mat
-	spot.cast_shadow = false
+	spot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	spot.scale = Vector3(1.0, 0.02, 1.0)   # flatten into a ground patch
 	add_child(spot)
 	cone_vfx_ready.emit(spot)

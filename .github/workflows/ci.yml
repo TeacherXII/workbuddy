@@ -73,9 +73,10 @@ jobs:
           # crash location via the commit-status description (API-readable).
           # GUT prints full resource paths (res://tests/unit/test_x.gd), not bare
           # filenames, so we grep for error/failure markers directly.
-          ERR_TXT=$(grep -Ei "SCRIPT ERROR|Parse Error|FAILED|ERROR:" gut_output.txt 2>/dev/null \
+          ERR_TXT=$(grep -Ei "SCRIPT ERROR|Parse Error|FAILED|ERROR:|at: res://" gut_output.txt 2>/dev/null \
             | sed -E 's/^[[:space:]]+//' \
-            | head -8 | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-92)
+            | grep -Ei "res://|\.gd|ERROR|FAILED" \
+            | head -10 | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-92)
           if [ -z "$ERR_TXT" ]; then ERR_TXT="no explicit errors logged"; fi
           echo ">>> Error context: $ERR_TXT"
           printf '%s' "GUT: $SUMMARY | $ERR_TXT" > "${GITHUB_WORKSPACE}/gut_summary.txt"

@@ -33,7 +33,7 @@ func spawn_landing_glow(pos: Vector3) -> MeshInstance3D:
 	# a flat emissive quad on the ground, never an OmniLight3D.
 	var quad := MeshInstance3D.new()
 	quad.mesh = QuadMesh.new()
-	quad.cast_shadow = false
+	quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var mat := StandardMaterial3D.new()
 	mat.emissive_enabled = true
 	mat.emissive_color = LANDING_GLOW_COLOR

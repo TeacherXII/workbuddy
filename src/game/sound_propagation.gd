@@ -173,7 +173,7 @@ func _spawn_ring_visual(rec: Dictionary) -> void:
 	col.a = 0.25
 	mat.albedo_color = col
 	ring.material_override = mat
-	ring.cast_shadow = false
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	ring.scale = Vector3(0.5, 0.02, 0.5)
 	ring.position = rec["origin"]
 	add_child(ring)
