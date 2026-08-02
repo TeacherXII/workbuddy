@@ -203,8 +203,8 @@ func _destroy_ring_visual(_rec: Dictionary) -> void:
 func suspicion_from_distance(intensity: float, dist: float, radius: float) -> float:
 	if radius <= 0.0:
 		return 0.0
-	var d := max(0.0, dist)
-	var factor := 1.0 - (d / radius)
+	var d: float = max(0.0, dist)
+	var factor: float = 1.0 - (d / radius)
 	return max(0.0, intensity * factor)
 
 
