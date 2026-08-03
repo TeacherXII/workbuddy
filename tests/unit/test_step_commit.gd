@@ -158,13 +158,18 @@ func test_gait_switch_changes_noise_radius():
 		"WALK+STONE must be 5.0*1.0*1.0 = 5.0")
 
 
-func test_commit_emits_both_signals_with_payload():
-	# E03-S4 / E03-S6: commit emits player_step_committed AND sound_emitted.
+func test_commit_emits_step_signal_no_direct_sound():
+	# G1 (S1C-FIX-01): commit emits player_step_committed, but NO LONGER emits
+	# sound_emitted directly. Sound is owned solely by SoundPropagator (E06),
+	# which subscribes to player_step_committed on the EventBus and emits the
+	# full sound_emitted payload. The prior assertion that StepCommit emitted
+	# sound_emitted directly encoded the legacy dual-emit path (design-review
+	# G1) that this fix removes, so it is corrected here (test's-own-bug fix).
 	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.5), "STONE")
 	assert_signal_emitted(_step, "player_step_committed",
 		"commit must emit player_step_committed")
-	assert_signal_emitted(_step, "sound_emitted",
-		"commit must emit sound_emitted (footfall)")
+	assert_signal_not_emitted(_step, "sound_emitted",
+		"G1: StepCommit must NOT emit sound_emitted directly; SoundPropagator owns it via the bus")
 
 
 func test_noise_radius_all_surfaces():

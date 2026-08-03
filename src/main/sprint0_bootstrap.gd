@@ -18,6 +18,7 @@ var _step: StepCommit = null
 var _light: LightModel = null
 var _vc: VisionCone = null
 var _hud: HudSlice = null
+var _sound: SoundPropagator = null   # G1: canonical (sole) owner of bus.sound_emitted
 var _player: Marker3D = null
 var _guard: Marker3D = null
 
@@ -70,6 +71,7 @@ func _instantiate_systems() -> void:
 	_vc.set_light_model(_light)   # share the demo light model (has shadow box)
 	add_child(_vc)
 	_hud = HudSlice.new(); add_child(_hud)
+	_sound = SoundPropagator.new()   # G1: sole bus emitter of sound_emitted
 
 
 func _setup_scene() -> void:
@@ -97,7 +99,14 @@ func _wire_signals() -> void:
 	if _bus == null or _step == null or _vc == null:
 		return
 	_step.player_step_committed.connect(_bus.player_step_committed.emit)
-	_step.sound_emitted.connect(_bus.sound_emitted.emit)
+	# G1 (S1C-FIX-01): the legacy StepCommit.sound_emitted -> bus bridge is
+	# removed. SoundPropagator (E06) is now the sole owner of EventBus
+	# .sound_emitted; it listens to player_step_committed and emits the full
+	# payload. Keeping this bridge double-emitted sound with an incomplete dict.
+	# Wire SoundPropagator into the demo so it is the functional (sole) bus
+	# emitter: its _ready() binds player_step_committed -> emit(enriched).
+	_sound.set_event_bus(_bus)
+	add_child(_sound)
 	_vc.vision_stimulus.connect(_bus.vision_stimulus.emit)
 	_vc.vision_stimulus.connect(_on_vision_stimulus)
 

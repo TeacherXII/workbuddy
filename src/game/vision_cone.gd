@@ -119,16 +119,33 @@ func is_in_edge_band(target: Vector3) -> bool:
 # One real-time tick: compute visibility + emit the edge tell. Extracted so
 # headless tests can drive it directly without a SceneTree.
 func _tick_once() -> void:
-	var v := compute_visibility(player_pos)
+	# G2 (S1C-FIX-01): apply the cover multiplier (E04-S6 / consistency-review
+	# C3). If the player stands in a cover spot (adjacent to an occluder, per
+	# LightModel.get_cover), the guard's visibility of them is reduced. Cover
+	# only lowers visibility; it never grants invisibility (R-03) -- the
+	# multiplier is clamped to [0,1] inside compute_visibility, and the
+	# cone/LOS/range gates above it are untouched.
+	var vis_mult := 1.0
+	if _light != null and _light.get_cover(player_pos):
+		vis_mult = VIS_MULT_COVER
+	var v := compute_visibility(player_pos, vis_mult)
 	vision_stimulus.emit(guard_id, null, v)
 	if _bus != null:
 		_bus.vision_stimulus.emit(guard_id, null, v)
 	var at_edge := is_in_edge_band(player_pos)
 	if at_edge and not _edge_warned:
-		_edge_warned = true
-		vision_looming.emit(guard_id)
-		if _bus != null:
-			_bus.vision_looming.emit(guard_id)
+		# G3 (S1C-FIX-01): the rim "about to be swept" tell must NOT fire when the
+		# player is occluded (behind a wall). A hidden target poses no threat
+		# tell. No physics world (headless) -> treat as visible so the tell still
+		# works in tests/editor (SpatialQueryWrapper returns true when no world).
+		var visible := true
+		if _query != null:
+			visible = _query.has_line_of_sight(observer_pos, player_pos, 1)
+		if visible:
+			_edge_warned = true
+			vision_looming.emit(guard_id)
+			if _bus != null:
+				_bus.vision_looming.emit(guard_id)
 	elif not at_edge:
 		# Re-arm: a new entry into the band will fire the tell again.
 		_edge_warned = false

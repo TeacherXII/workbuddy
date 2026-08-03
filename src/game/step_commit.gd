@@ -74,8 +74,13 @@ func commit(from: Vector3, to: Vector3, surface: String) -> void:
 		"noise_radius": noise_radius,
 		"step_duration": step_duration,
 	})
-	# Footstep foley hook: drive the sound system from the landing point.
-	sound_emitted.emit({"pos": to, "radius": noise_radius})
+	# G1 (S1C-FIX-01): sound is owned solely by SoundPropagator (E06-S2), which
+	# subscribes to `player_step_committed` on the EventBus and emits the full
+	# `sound_emitted` payload (origin/radius/intensity/source/target_guard_ids).
+	# StepCommit no longer emits sound_emitted directly -- that dual path caused
+	# a duplicate, field-incomplete sound_emitted on the bus (design-review G1).
+	# The `signal sound_emitted` declaration on this class is intentionally kept
+	# so the public API is unchanged, but it is never emitted from here.
 	_push_ghost(from)
 	_spawn_footfall_vfx(from, to, surface)
 	state = "RECOVERING"

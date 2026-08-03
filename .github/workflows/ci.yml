@@ -11,7 +11,11 @@ jobs:
     name: GUT headless smoke (Sprint 0)
     runs-on: ubuntu-latest
     container:
-      image: barichello/godot-ci:4.4
+      # Pin to a specific 4.4.x patch. The bare "4.4" tag is floating and silently
+      # drifted between patch builds (the 2-arg commit() parse-error incident proved
+      # patch drift can flip a tolerated call into a hard failure). 4.4.1 is the only
+      # concrete patch tag published for the 4.4 line, so pin there for CI stability.
+      image: barichello/godot-ci:4.4.1
     permissions:
       contents: read
       statuses: write
@@ -69,20 +73,20 @@ jobs:
           DESC="GUT: $SUMMARY"
           echo ">>> GUT summary: $DESC"
           printf '%s' "$DESC" > "${GITHUB_WORKSPACE}/gut_summary.txt"
-          # Surface actual error / failure text so the orchestrator can read the
-          # crash location via the commit-status description (API-readable).
-          # GUT prints full resource paths (res://tests/unit/test_x.gd), not bare
-          # filenames, so we grep for error/failure markers directly.
-          LOC_TXT=$(grep -Ei "at: res://" gut_output.txt 2>/dev/null \
-            | sed -E 's/^[[:space:]]+//' | head -3 | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-70)
-          if [ -z "$LOC_TXT" ]; then LOC_TXT="loc:?"; fi
-          ERR_TXT=$(grep -Ei "SCRIPT ERROR|Parse Error|FAILED|ERROR:" gut_output.txt 2>/dev/null \
-            | grep -Ei "ERROR|FAILED" \
-            | head -3 | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-55)
-          if [ -z "$ERR_TXT" ]; then ERR_TXT="no explicit errors logged"; fi
-          echo ">>> Error context: $ERR_TXT"
-          echo ">>> Error location: $LOC_TXT"
-          printf '%s' "GUT: $LOC_TXT | $SUMMARY | $ERR_TXT" > "${GITHUB_WORKSPACE}/gut_summary.txt"
+          # Surface which test files failed via the commit-status description
+          # (API-readable, since workflow logs need auth). GUT prints the full
+          # res:// path on [Failed]/FAILED/Parse-Error lines; extract + dedupe
+          # those basenames so the orchestrator can route fixes precisely.
+          # Identify WHICH test files actually have failures (or parse errors).
+          # GUT prints the full res:// path on [Failed]/FAILED/Parse-Error lines,
+          # so extract + dedupe those basenames for the orchestrator to route fixes.
+          FAIL_FILES=$(grep -Ei "\[Failed\]|FAILED|Parse Error|SCRIPT ERROR" gut_output.txt 2>/dev/null \
+            | grep -Eoi "res://[A-Za-z0-9_/.-]+\.gd" \
+            | sed -E 's#res://tests/unit/##; s#^.*/##; s/\.gd$//; s/^test_//' \
+            | sort -u | tr '\n' ',' | sed 's/,$//' | cut -c1-80)
+          if [ -z "$FAIL_FILES" ]; then FAIL_FILES="no file paths captured"; fi
+          echo ">>> Failing/error test files: $FAIL_FILES"
+          printf '%s' "GUT: $SUMMARY | failIn:$FAIL_FILES" > "${GITHUB_WORKSPACE}/gut_summary.txt"
           echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt (with error context)"
           if echo "$SUMMARY" | grep -qE 'Failing[: ]+0([^0-9]|$)'; then
             echo "GUT reports zero failures — job passes."
