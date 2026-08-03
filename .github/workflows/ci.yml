@@ -106,7 +106,19 @@ jobs:
           echo ">>> Failing paths: $FAIL_FILES"
           printf '%s' "GUT: $SUMMARY | $FAIL_TXT" > "${GITHUB_WORKSPACE}/gut_summary.txt"
           echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt (with failing test names)"
-          if echo "$SUMMARY" | grep -qE 'Failing[: ]+0([^0-9]|$)'; then
+          # Pass/fail gate: judge by the PRESENCE of failure signals, never by
+          # the presence of a literal "Failing 0". GUT 9.3.0 omits the "Failing"
+          # row entirely when nothing fails (run #30 printed only
+          # "Scripts 7 / Passing 59"), so the old `grep 'Failing 0'` check went
+          # unmatched and red-flagged a 59/59 green run.
+          # Keep the gate fail-CLOSED on infra breakage: if GUT produced no
+          # parsable counts at all, that is a failure, not a silent pass.
+          if [ "$SUMMARY" = "GUT output not parsed" ]; then
+            echo "::error::GUT produced no parsable summary (crash/import issue) — job fails."
+            exit 1
+          fi
+          if ! grep -qF '[Failed]' gut_output.txt 2>/dev/null \
+             && ! echo "$SUMMARY" | grep -qE 'Failing[[:space:]]*[:=]?[[:space:]]*[1-9][0-9]*'; then
             echo "GUT reports zero failures — job passes."
             exit 0
           fi
@@ -128,7 +140,17 @@ jobs:
             const f = path.join(process.env.GITHUB_WORKSPACE, 'gut_summary.txt');
             let desc = 'GUT summary file missing (infra issue)';
             try { desc = fs.readFileSync(f, 'utf8').trim(); } catch (e) { console.log('read err', e.message); }
-            const state = (desc.includes('Failing: 0') || desc.includes('Failing 0')) ? 'success' : 'failure';
+            // Mirror step 3's gate: decide on failure SIGNALS, not on a literal
+            // "Failing 0" — GUT 9.3.0 prints no "Failing" row when nothing fails,
+            // so the old check marked fully-green runs as failure.
+            // The last two clauses keep infra breakage fail-closed (unchanged
+            // behaviour: a missing/unparsable summary must not report success).
+            const isFail = desc.includes('[Failed]')
+              || /Failing[\s:=]*[1-9]\d*/i.test(desc)
+              || desc.includes('fails:[')
+              || desc.includes('summary file missing')
+              || desc.includes('GUT output not parsed');
+            const state = isFail ? 'failure' : 'success';
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
