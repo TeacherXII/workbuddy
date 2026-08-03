@@ -79,19 +79,19 @@ jobs:
           # include res:// paths on those lines (that format is only for
           # Godot's own SCRIPT/Parse errors). So extract the failed test
           # names; the orchestrator maps them to files locally.
-          # Extract failing TEST NAMES (func names) from GUT failure output.
-          # GUT prints e.g. "[Failed] res://tests/unit/test_x.gd:NN - test_y - <msg>"
-          # or "[Failed] test_y - <msg>". We grab every test_<token>, drop the 7
-          # bare test-file names (so only the actual test func names remain), and
-          # strip the test_ prefix to stay under the 140-char status limit.
-          FAIL_TESTS=$(grep -Ei "\[?(Failed|FAILED)\]?|assert" gut_output.txt 2>/dev/null \
-            | grep -Eo "test_[A-Za-z0-9_]+" \
-            | grep -Ev "^(test_event_bus|test_hud_slice|test_vision_cone|test_sound_propagation|test_step_commit|test_light_model|test_integration_step_vis)$" \
-            | sed 's/^test_//' \
-            | sort -u | head -8 | tr '\n' ',' | sed 's/,$//' | cut -c1-110)
-          # Fallback: if no clean test names matched, surface raw failure lines
-          # (truncated) so the orchestrator can read GUT's actual format.
-          FAIL_RAW=$(grep -Ei "failed|assert" gut_output.txt 2>/dev/null \
+          # Extract failing TEST NAMES from GUT's ACTUAL failure format.
+          # GUT prints each test as "* test_name", then on failure a
+          # "[Failed]: <msg>" line. We track the last "* <name>" line and emit
+          # it whenever a "[Failed]" line follows. (Passing tests also print
+          # "* name" but are never followed by [Failed], so they're excluded.)
+          # Strip the "test_" prefix to fit the 140-char status limit.
+          FAIL_TESTS=$(awk '
+            /^[*] / { tn=$0; sub(/^[*] /, "", tn); sub(/<.*/, "", tn); }
+            /\[Failed\]/ { if (tn != "") print tn; }
+          ' gut_output.txt 2>/dev/null \
+            | sed 's/^test_//' | sort -u | head -12 | tr '\n' ',' | sed 's/,$//' | cut -c1-120)
+          # Fallback: raw failing lines (truncated) if the awk above misses.
+          FAIL_RAW=$(grep -Ei "\[Failed\]|assert" gut_output.txt 2>/dev/null \
             | grep -Evi "passed" | head -4 \
             | sed -E 's/^[[:space:]]+//' | cut -c1-110 | tr '\n' '|')
           FAIL_TXT=""

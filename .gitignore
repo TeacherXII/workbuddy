@@ -15,6 +15,9 @@ addons/gut/
 Thumbs.db
 desktop.ini
 
+# ===== Local Godot/GUT toolchain (downloaded for local test runs; not game content) =====
+tools/
+
 # ===== Studio tool-internal logs (not game content) =====
 .workbuddy/
 
