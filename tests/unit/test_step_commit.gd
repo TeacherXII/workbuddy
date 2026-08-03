@@ -47,7 +47,10 @@ var _commit_count: int = 0
 func before_each() -> void:
 	_step = StepCommit.new()
 	_time = TimeController.new()
-	add_child(_time)   # in tree so enter_focus/exit_focus tweens are valid
+	# In tree so enter_focus/exit_focus tweens are valid. autofree replaces the
+	# hand-rolled remove_child+free that used to live in after_each: GUT frees
+	# this right after each test (ADDCHILD-AUTOFREE-01).
+	add_child_autofree(_time)
 	watch_signals(_step)
 	watch_signals(_time)
 	_step.player_step_committed.connect(_capture_step)
@@ -58,10 +61,8 @@ func before_each() -> void:
 
 func after_each() -> void:
 	Engine.time_scale = 1.0   # reset global scale possibly polluted by focus tween
-	if _time != null:
-		if _time.get_parent() != null:
-			_time.get_parent().remove_child(_time)
-		_time.free()
+	# _time is released by add_child_autofree after this method returns; the old
+	# manual remove_child+free is gone so there is exactly ONE teardown path.
 	_step = null
 	_time = null
 	_exp = null

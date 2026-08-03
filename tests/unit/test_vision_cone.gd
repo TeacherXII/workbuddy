@@ -75,7 +75,9 @@ func test_cone_constants_align_to_gdd():
 
 func test_phase_offset_initialized_within_tick_window():
 	# E05-S1 / G-03: per-guard phase offset so multiple guards don't fire same frame.
-	add_child(_vc)  # triggers _ready -> _accum = randf() * (1.0 / TICK_HZ)
+	# autofree, not plain add_child: the cone is a per-test fixture and must not
+	# survive into later tests (ADDCHILD-AUTOFREE-01).
+	add_child_autofree(_vc)  # triggers _ready -> _accum = randf() * (1.0 / TICK_HZ)
 	assert_true(_vc._accum >= 0.0, "phase offset must be non-negative")
 	assert_true(_vc._accum < 0.1, "phase offset must lie within one tick window (<0.1s)")
 

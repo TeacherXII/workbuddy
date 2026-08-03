@@ -38,9 +38,14 @@ func before_each() -> void:
 	# must look at +Z (Vector3.BACK) to have them inside the 35deg cone.
 	_vc.observer_forward = Vector3.BACK
 	_bus = EventBus.new()
-	add_child(_bus)
-	add_child(_step)
-	add_child(_vc)
+	# add_child_autofree (NOT plain add_child): GUT frees these right after each
+	# test, which takes them out of the tree and de-registers EventBus from group
+	# "event_bus". Plain add_child leaked every fixture, so group membership grew
+	# per test and get_first_node_in_group returned the FIRST (stale) bus
+	# (ADDCHILD-AUTOFREE-01).
+	add_child_autofree(_bus)
+	add_child_autofree(_step)
+	add_child_autofree(_vc)
 	watch_signals(_step)
 	watch_signals(_vc)
 	watch_signals(_bus)
@@ -51,7 +56,7 @@ func before_each() -> void:
 	# Wire a SoundPropagator so this integration test exercises the canonical path.
 	_sp = SoundPropagator.new()
 	_sp.set_event_bus(_bus)
-	add_child(_sp)
+	add_child_autofree(_sp)
 	_bus.sound_emitted.connect(_on_sound)
 	_vc.vision_stimulus.connect(_on_vision)
 	_captured_sound = {}

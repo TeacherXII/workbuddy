@@ -26,21 +26,28 @@ func before_each() -> void:
 	# Mirror sprint0_bootstrap._spawn_event_bus: create the bus, add it to the
 	# tree so its _ready registers group "event_bus", then add the HUD which
 	# grabs the bus from that group in its own _ready.
+	#
+	# add_child_autofree (NOT plain add_child): GUT frees autofree'd nodes right
+	# after each test (gut.gd _run_test -> _autofree.free_all()). Freeing takes
+	# the node out of the tree, which de-registers it from group "event_bus", so
+	# the next test's bus is the ONLY member of that group. Plain add_child never
+	# frees: group membership grew 1,2,3... and get_first_node_in_group returned
+	# the FIRST (stale) bus -- the ADDCHILD-AUTOFREE-01 root cause.
 	_bus = EventBus.new()
-	add_child(_bus)
+	add_child_autofree(_bus)
 	_hud = HudSlice.new()
-	# Inject THIS test's bus before the HUD enters the tree. Plain add_child'd
-	# nodes are not freed between tests, so buses from earlier tests are still
-	# registered in group "event_bus"; HudSlice._ready's group fallback would
-	# grab the FIRST (stale) one and the HUD would never see this test's
-	# signals. Explicit injection makes the wiring deterministic.
+	# Defense in depth: inject THIS test's bus explicitly before the HUD enters
+	# the tree. With autofree in place HudSlice._ready's group fallback would now
+	# resolve to the correct bus on its own, but explicit injection keeps the
+	# wiring deterministic regardless of group state.
 	_hud.set_event_bus(_bus)
-	add_child(_hud)
+	add_child_autofree(_hud)
 	watch_signals(_bus)
 
 
 func after_each() -> void:
-	# GUT auto-frees add_child'd nodes; null refs to avoid stale handles.
+	# add_child_autofree releases these nodes AFTER this method returns, so just
+	# drop our handles here; nothing below may touch a freed node.
 	_bus = null
 	_hud = null
 
@@ -94,7 +101,11 @@ func test_set_aim_preview_shows_and_matches_projection():
 	cam.current = true
 	cam.position = Vector3(0, 12, -12)
 	cam.look_at(Vector3.ZERO, Vector3.UP)
-	add_child(cam)
+	# autofree: a leaked `current` camera would stay in the viewport for every
+	# later test in this script and silently break the sibling test that asserts
+	# NO camera is available (it only passes today because it happens to be
+	# declared earlier). Freeing per test removes that order dependency.
+	add_child_autofree(cam)
 
 	var world_pos := Vector3(0, 0, 3)
 	_hud.set_aim_preview(world_pos)
