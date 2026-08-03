@@ -85,11 +85,15 @@ jobs:
           # it whenever a "[Failed]" line follows. (Passing tests also print
           # "* name" but are never followed by [Failed], so they're excluded.)
           # Strip the "test_" prefix to fit the 140-char status limit.
+          # NOTE: deliberately NO head -12 / cut -c1-120 truncation here — the
+          # orchestrator reads the full FAIL_TESTS from this job's log (which is
+          # not subject to the 140-char commit-status limit) to get every failing
+          # test name. Truncation previously hid failures 6-10.
           FAIL_TESTS=$(awk '
             /^[*] / { tn=$0; sub(/^[*] /, "", tn); sub(/<.*/, "", tn); }
             /\[Failed\]/ { if (tn != "") print tn; }
           ' gut_output.txt 2>/dev/null \
-            | sed 's/^test_//' | sort -u | head -12 | tr '\n' ',' | sed 's/,$//' | cut -c1-120)
+            | sed 's/^test_//' | sort -u | tr '\n' ',' | sed 's/,$//')
           # Fallback: raw failing lines (truncated) if the awk above misses.
           FAIL_RAW=$(grep -Ei "\[Failed\]|assert" gut_output.txt 2>/dev/null \
             | grep -Evi "passed" | head -4 \
@@ -134,3 +138,15 @@ jobs:
               context: 'gut-smoke'
             });
             console.log('Posted commit status ->', state, '|', desc);
+
+      # ── 5. Upload raw GUT output for failure triage ──
+      # Host step (workspace shared with container). The orchestrator downloads
+      # this zip to read the exact "[Failed]: <msg>" lines and classify each
+      # failure as a real logic bug vs. a headless-env limitation.
+      - name: Upload raw GUT output (failure triage)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gut-output
+          path: gut_output.txt
+          if-no-files-found: warn
