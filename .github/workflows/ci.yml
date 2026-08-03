@@ -73,21 +73,27 @@ jobs:
           DESC="GUT: $SUMMARY"
           echo ">>> GUT summary: $DESC"
           printf '%s' "$DESC" > "${GITHUB_WORKSPACE}/gut_summary.txt"
-          # Surface which test files failed via the commit-status description
-          # (API-readable, since workflow logs need auth). GUT prints the full
-          # res:// path on [Failed]/FAILED/Parse-Error lines; extract + dedupe
-          # those basenames so the orchestrator can route fixes precisely.
-          # Identify WHICH test files actually have failures (or parse errors).
-          # GUT prints the full res:// path on [Failed]/FAILED/Parse-Error lines,
-          # so extract + dedupe those basenames for the orchestrator to route fixes.
-          FAIL_FILES=$(grep -Ei "\[Failed\]|FAILED|Parse Error|SCRIPT ERROR" gut_output.txt 2>/dev/null \
-            | grep -Eoi "res://[A-Za-z0-9_/.-]+\.gd" \
-            | sed -E 's#res://tests/unit/##; s#^.*/##; s/\.gd$//; s/^test_//' \
-            | sort -u | tr '\n' ',' | sed 's/,$//' | cut -c1-80)
-          if [ -z "$FAIL_FILES" ]; then FAIL_FILES="no file paths captured"; fi
-          echo ">>> Failing/error test files: $FAIL_FILES"
-          printf '%s' "GUT: $SUMMARY | failIn:$FAIL_FILES" > "${GITHUB_WORKSPACE}/gut_summary.txt"
-          echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt (with error context)"
+          # Surface WHICH tests failed via the commit-status description
+          # (API-readable, since workflow logs need auth). GUT prints
+          # "[Failed] test_name - <msg>" for assertion failures, but does NOT
+          # include res:// paths on those lines (that format is only for
+          # Godot's own SCRIPT/Parse errors). So extract the failed test
+          # names; the orchestrator maps them to files locally.
+          FAIL_TESTS=$(grep -Eoi "\[Failed\][[:space:]]+[A-Za-z_][A-Za-z0-9_]*\(" gut_output.txt 2>/dev/null \
+            | grep -Eo "[A-Za-z_][A-Za-z0-9_]*\(" | tr -d '(' \
+            | sort -u | tr '\n' ',' | sed 's/,$//' | cut -c1-95)
+          # Also capture any Godot-side res:// script-error paths (rare here).
+          FAIL_FILES=$(grep -Eoi "res://[A-Za-z0-9_/.-]+test_[A-Za-z0-9_-]*\.gd" gut_output.txt 2>/dev/null \
+            | sed -E 's#res://tests/unit/##; s/\.gd$//; s/^test_//' \
+            | sort -u | tr '\n' ',' | sed 's/,$//' | cut -c1-40)
+          FAIL_TXT=""
+          if [ -n "$FAIL_TESTS" ]; then FAIL_TXT="fails:[$FAIL_TESTS]"; fi
+          if [ -n "$FAIL_FILES" ]; then FAIL_TXT="$FAIL_TXT paths:[$FAIL_FILES]"; fi
+          if [ -z "$FAIL_TXT" ]; then FAIL_TXT="no failures captured"; fi
+          echo ">>> Failing tests: $FAIL_TESTS"
+          echo ">>> Failing paths: $FAIL_FILES"
+          printf '%s' "GUT: $SUMMARY | $FAIL_TXT" > "${GITHUB_WORKSPACE}/gut_summary.txt"
+          echo ">>> wrote ${GITHUB_WORKSPACE}/gut_summary.txt (with failing test names)"
           if echo "$SUMMARY" | grep -qE 'Failing[: ]+0([^0-9]|$)'; then
             echo "GUT reports zero failures — job passes."
             exit 0

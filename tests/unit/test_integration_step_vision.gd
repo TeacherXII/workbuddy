@@ -2,9 +2,10 @@
 # GUT integration tests: StepCommit -> EventBus -> VisionCone vocabulary
 # (ADR-002 event-driven recompute; system-breakdown §2 signal contract).
 #
-# Covers: commit emits player_step_committed + sound_emitted (driving E06 /
-# vision recompute); visibility reflects light level (light pool ~1.0, shadow
-# ~0.0); ghost_trail capped at MAX_GHOST=6; EventBus wiring carries the commit.
+# Covers: commit emits player_step_committed -> SoundPropagator -> bus.sound_emitted
+# (canonical E06 path; StepCommit no longer emits sound_emitted directly, G1);
+# visibility reflects light level (light pool ~1.0, shadow ~0.0); ghost_trail
+# capped at MAX_GHOST=6; EventBus wiring carries the commit.
 #
 # Run: godot --headless -s res://addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
 
@@ -14,12 +15,14 @@ const StepCommit = preload("res://src/game/step_commit.gd")
 const VisionCone = preload("res://src/game/vision_cone.gd")
 const LightModel = preload("res://src/game/light_model.gd")
 const EventBus = preload("res://src/core/event_bus.gd")
+const SoundPropagator = preload("res://src/game/sound_propagation.gd")
 
 
 var _step: StepCommit
 var _vc: VisionCone
 var _lm: LightModel
 var _bus: EventBus
+var _sp: SoundPropagator
 var _captured_sound: Dictionary = {}
 var _last_visibility: float = -1.0
 var _commit_count := 0
@@ -41,7 +44,13 @@ func before_each() -> void:
 	watch_signals(_bus)
 	# Wire the event vocabulary: commit -> bus -> (E06 sound / vision recompute).
 	_step.player_step_committed.connect(_bus.player_step_committed.emit)
-	_step.sound_emitted.connect(_on_sound)
+	# G1 (S1C-FIX-01): sound_emitted is owned solely by SoundPropagator, driven by
+	# player_step_committed through the bus (not StepCommit's removed direct emit).
+	# Wire a SoundPropagator so this integration test exercises the canonical path.
+	_sp = SoundPropagator.new()
+	_sp.set_event_bus(_bus)
+	add_child(_sp)
+	_bus.sound_emitted.connect(_on_sound)
 	_vc.vision_stimulus.connect(_on_vision)
 	_captured_sound = {}
 	_last_visibility = -1.0
@@ -53,6 +62,7 @@ func after_each() -> void:
 	_step = null
 	_vc = null
 	_lm = null
+	_sp = null
 
 
 func _on_sound(p: Dictionary) -> void:
@@ -64,13 +74,13 @@ func _on_vision(_gid: int, _t: Node, v: float) -> void:
 
 
 func test_commit_emits_sound_with_landing_payload():
-	# E03-S4 / E03-S6: commit drives footfall -> sound_emitted carries landing
-	# point + noise radius (consumed by E06 + as dirty trigger for vision).
+	# E03-S4 / E03-S6 / E06-S2: commit -> player_step_committed -> SoundPropagator
+	# -> bus.sound_emitted carries the landing point (origin) + noise radius.
 	_step.commit(Vector3.ZERO, Vector3(0, 0, 2), "STONE")
-	assert_signal_emitted(_step, "sound_emitted",
-		"commit must emit sound_emitted (drives E06 / vision recompute)")
-	assert_eq(_captured_sound.get("pos", null), Vector3(0, 0, 2),
-		"sound payload must carry the landing position")
+	assert_signal_emitted(_bus, "sound_emitted",
+		"commit must drive sound_emitted via SoundPropagator (E06 / vision recompute)")
+	assert_eq(_captured_sound.get("origin", null), Vector3(0, 0, 2),
+		"sound payload must carry the landing position (origin)")
 	assert_true(_captured_sound.has("radius"),
 		"sound payload must carry the noise radius")
 
@@ -106,8 +116,8 @@ func test_commit_landing_in_shadow_yields_zero_visibility():
 	_vc.observer_pos = Vector3.ZERO
 	_vc.observer_forward = Vector3.FORWARD
 	_step.commit(Vector3.ZERO, Vector3(0, 0, 3), "STONE")
-	assert_signal_emitted(_step, "sound_emitted",
-		"commit must fire (drives dirty recompute)")
+	assert_signal_emitted(_bus, "sound_emitted",
+		"commit must fire sound via SoundPropagator (drives dirty recompute)")
 	var v := _vc.compute_visibility(Vector3(0, 0, 3))
 	assert_eq(v, 0.0, "landing inside shadow -> guard detects nothing")
 
