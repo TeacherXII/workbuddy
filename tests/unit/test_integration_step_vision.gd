@@ -129,5 +129,5 @@ func test_ghost_trail_capped_at_six():
 	for i in range(12):
 		_step.commit(Vector3.ZERO, Vector3(0, 0, 1.0 + float(i)), "STONE")
 		_step.tick_real(0.13)   # clear real-time cooldown + return to IDLE
-	assert_true(_step.ghost_trail.size() <= 6,
-		"ghost_trail must never exceed MAX_GHOST=6 (got %d)" % _step.ghost_trail.size())
+	assert_true(_step._ghost_trail.size() <= 6,
+		"ghost_trail must never exceed MAX_GHOST=6 (got %d)" % _step._ghost_trail.size())
