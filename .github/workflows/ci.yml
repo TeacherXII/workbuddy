@@ -79,16 +79,24 @@ jobs:
           # include res:// paths on those lines (that format is only for
           # Godot's own SCRIPT/Parse errors). So extract the failed test
           # names; the orchestrator maps them to files locally.
-          FAIL_TESTS=$(grep -Eoi "\[Failed\][[:space:]]+[A-Za-z_][A-Za-z0-9_]*\(" gut_output.txt 2>/dev/null \
-            | grep -Eo "[A-Za-z_][A-Za-z0-9_]*\(" | tr -d '(' \
-            | sort -u | tr '\n' ',' | sed 's/,$//' | cut -c1-95)
-          # Also capture any Godot-side res:// script-error paths (rare here).
-          FAIL_FILES=$(grep -Eoi "res://[A-Za-z0-9_/.-]+test_[A-Za-z0-9_-]*\.gd" gut_output.txt 2>/dev/null \
-            | sed -E 's#res://tests/unit/##; s/\.gd$//; s/^test_//' \
-            | sort -u | tr '\n' ',' | sed 's/,$//' | cut -c1-40)
+          # Extract failing TEST NAMES (func names) from GUT failure output.
+          # GUT prints e.g. "[Failed] res://tests/unit/test_x.gd:NN - test_y - <msg>"
+          # or "[Failed] test_y - <msg>". We grab every test_<token>, drop the 7
+          # bare test-file names (so only the actual test func names remain), and
+          # strip the test_ prefix to stay under the 140-char status limit.
+          FAIL_TESTS=$(grep -Ei "\[?(Failed|FAILED)\]?|assert" gut_output.txt 2>/dev/null \
+            | grep -Eo "test_[A-Za-z0-9_]+" \
+            | grep -Ev "^(test_event_bus|test_hud_slice|test_vision_cone|test_sound_propagation|test_step_commit|test_light_model|test_integration_step_vis)$" \
+            | sed 's/^test_//' \
+            | sort -u | head -8 | tr '\n' ',' | sed 's/,$//' | cut -c1-110)
+          # Fallback: if no clean test names matched, surface raw failure lines
+          # (truncated) so the orchestrator can read GUT's actual format.
+          FAIL_RAW=$(grep -Ei "failed|assert" gut_output.txt 2>/dev/null \
+            | grep -Evi "passed" | head -4 \
+            | sed -E 's/^[[:space:]]+//' | cut -c1-110 | tr '\n' '|')
           FAIL_TXT=""
           if [ -n "$FAIL_TESTS" ]; then FAIL_TXT="fails:[$FAIL_TESTS]"; fi
-          if [ -n "$FAIL_FILES" ]; then FAIL_TXT="$FAIL_TXT paths:[$FAIL_FILES]"; fi
+          if [ -z "$FAIL_TXT" ] && [ -n "$FAIL_RAW" ]; then FAIL_TXT="raw:[$FAIL_RAW]"; fi
           if [ -z "$FAIL_TXT" ]; then FAIL_TXT="no failures captured"; fi
           echo ">>> Failing tests: $FAIL_TESTS"
           echo ">>> Failing paths: $FAIL_FILES"
