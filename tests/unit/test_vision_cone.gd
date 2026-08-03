@@ -25,7 +25,14 @@ func before_each() -> void:
 	_lm = LightModel.new()
 	_vc.set_light_model(_lm)        # inject the demo light model
 	_vc.observer_pos = Vector3.ZERO
-	_vc.observer_forward = Vector3.FORWARD
+	# NOTE: Godot's Vector3.FORWARD is (0,0,-1). Every target below is placed at
+	# +Z, so the observer must LOOK at +Z (Vector3.BACK) for those targets to be
+	# inside the cone. Using FORWARD here put every target 180deg BEHIND the
+	# observer, so compute_visibility returned 0.0 at the angle gate before ever
+	# reaching the LOS/light terms. Production wiring is consistent with BACK:
+	# sprint0_bootstrap.gd sets observer_forward to (player - guard).normalized(),
+	# i.e. a real direction vector toward the look target.
+	_vc.observer_forward = Vector3.BACK
 	watch_signals(_vc)
 	_loom_count = 0
 	_vc.vision_looming.connect(_count_loom)

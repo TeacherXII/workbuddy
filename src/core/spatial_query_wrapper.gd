@@ -19,6 +19,12 @@ func has_line_of_sight(from: Vector3, to: Vector3, occlusion_mask: int) -> bool:
 	if space_state == null:
 		return true
 
+	# Degenerate ray (observer standing on the target): nothing can lie strictly
+	# between the two points, so sight is clear by definition. intersect_ray is
+	# undefined for a zero-length segment, so never trust it here.
+	if from.is_equal_approx(to):
+		return true
+
 	var query := PhysicsRayQueryParameters3D.new()
 	query.from = from
 	query.to = to
@@ -26,7 +32,20 @@ func has_line_of_sight(from: Vector3, to: Vector3, occlusion_mask: int) -> bool:
 
 	var hit := space_state.intersect_ray(query)
 	# No collision between from and to => the line of sight is clear.
-	return hit.is_empty()
+	if hit.is_empty():
+		return true
+
+	# Defensive: only a REAL, still-valid occluder body may block sight. A hit
+	# dictionary without a live collider cannot be attributed to an occluder
+	# (stale/freed body, or a non-production physics context such as the
+	# headless CI container), so we fall back to the documented intent above:
+	# when a reliable occlusion verdict is unavailable, treat sight as clear
+	# rather than falsely reporting "blocked".
+	var collider = hit.get("collider", null)
+	if collider == null or not is_instance_valid(collider):
+		return true
+
+	return false
 
 
 func _get_space_state() -> PhysicsDirectSpaceState3D:

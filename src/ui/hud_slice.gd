@@ -19,12 +19,35 @@ var _preview: Control = null
 
 
 func _ready() -> void:
-	_bus = get_tree().get_first_node_in_group("event_bus") as EventBus
+	# Prefer an explicitly injected bus (set_event_bus). The group lookup is only
+	# a fallback for scene-driven wiring: get_first_node_in_group returns the
+	# FIRST registered EventBus, which is not necessarily the one this HUD is
+	# meant to observe when several buses exist in the tree.
+	if _bus == null:
+		_bus = get_tree().get_first_node_in_group("event_bus") as EventBus
 	_build_ui()
-	if _bus != null:
+	_connect_bus()
+
+
+# Explicit dependency injection (preferred over the group lookup). Safe to call
+# before or after the node enters the tree: the UI widgets are null-guarded in
+# every handler, and _connect_bus is idempotent.
+func set_event_bus(bus: EventBus) -> void:
+	_bus = bus
+	_connect_bus()
+
+
+func _connect_bus() -> void:
+	if _bus == null or not is_instance_valid(_bus):
+		return
+	# Idempotent: _ready and set_event_bus may both run, in either order.
+	if not _bus.time_scale_changed.is_connected(_on_time_scale_changed):
 		_bus.time_scale_changed.connect(_on_time_scale_changed)
+	if not _bus.vision_stimulus.is_connected(_on_vision_stimulus):
 		_bus.vision_stimulus.connect(_on_vision_stimulus)
+	if not _bus.suspicion_changed.is_connected(_on_suspicion_changed):
 		_bus.suspicion_changed.connect(_on_suspicion_changed)
+	if not _bus.player_step_committed.is_connected(_on_step_committed):
 		_bus.player_step_committed.connect(_on_step_committed)
 
 

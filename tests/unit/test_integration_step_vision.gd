@@ -34,7 +34,9 @@ func before_each() -> void:
 	_vc = VisionCone.new()
 	_vc.set_light_model(_lm)
 	_vc.observer_pos = Vector3.ZERO
-	_vc.observer_forward = Vector3.FORWARD
+	# Vector3.FORWARD is (0,0,-1); all targets below sit at +Z, so the observer
+	# must look at +Z (Vector3.BACK) to have them inside the 35deg cone.
+	_vc.observer_forward = Vector3.BACK
 	_bus = EventBus.new()
 	add_child(_bus)
 	add_child(_step)
@@ -95,7 +97,7 @@ func test_event_bus_wiring_carries_step_commit():
 func test_visibility_in_light_pool_is_full():
 	# E04-S1 / E05-S2: in cone, LOS clear, light pool -> full visibility 1.0.
 	_vc.observer_pos = Vector3.ZERO
-	_vc.observer_forward = Vector3.FORWARD
+	_vc.observer_forward = Vector3.BACK
 	var v := _vc.compute_visibility(Vector3(0, 0, 5))
 	assert_eq(v, 1.0, "cone + LOS + light pool must yield full visibility")
 
@@ -104,7 +106,7 @@ func test_visibility_in_shadow_is_zero():
 	# E04-S1 / E05-S2: shadow box -> L ~= 0.1 -> visibility ~= 0.0.
 	_lm.add_shadow_box(Vector3(0, 0, 5), 2.0)
 	_vc.observer_pos = Vector3.ZERO
-	_vc.observer_forward = Vector3.FORWARD
+	_vc.observer_forward = Vector3.BACK
 	var v := _vc.compute_visibility(Vector3(0, 0, 5))
 	assert_eq(v, 0.0, "target inside a shadow box must be effectively invisible")
 
@@ -114,7 +116,7 @@ func test_commit_landing_in_shadow_yields_zero_visibility():
 	# must leave the guard detecting nothing at the landing point.
 	_lm.add_shadow_box(Vector3(0, 0, 3), 2.0)
 	_vc.observer_pos = Vector3.ZERO
-	_vc.observer_forward = Vector3.FORWARD
+	_vc.observer_forward = Vector3.BACK
 	_step.commit(Vector3.ZERO, Vector3(0, 0, 3), "STONE")
 	assert_signal_emitted(_bus, "sound_emitted",
 		"commit must fire sound via SoundPropagator (drives dirty recompute)")

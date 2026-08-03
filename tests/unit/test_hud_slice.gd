@@ -29,6 +29,12 @@ func before_each() -> void:
 	_bus = EventBus.new()
 	add_child(_bus)
 	_hud = HudSlice.new()
+	# Inject THIS test's bus before the HUD enters the tree. Plain add_child'd
+	# nodes are not freed between tests, so buses from earlier tests are still
+	# registered in group "event_bus"; HudSlice._ready's group fallback would
+	# grab the FIRST (stale) one and the HUD would never see this test's
+	# signals. Explicit injection makes the wiring deterministic.
+	_hud.set_event_bus(_bus)
 	add_child(_hud)
 	watch_signals(_bus)
 
