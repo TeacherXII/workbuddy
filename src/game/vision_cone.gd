@@ -46,6 +46,7 @@ var _edge_warned := false
 var _light: LightModel = null
 var _query: SpatialQueryWrapper = null
 var _bus: EventBus = null
+var _readability_boost := false
 
 signal vision_stimulus(guard_id: int, target: Node, visibility: float)
 signal vision_looming(guard_id: int)
@@ -72,6 +73,17 @@ func set_event_bus(bus: EventBus) -> void:
 func set_observer(pos: Vector3, forward: Vector3) -> void:
 	observer_pos = pos
 	observer_forward = forward
+
+
+# E09-S3: readability orchestration (duck-typed; HudSlice only calls this and
+# never touches our material). Boost pins the cone to its brightest legal step
+# instead of pulsing, so FOCUS reads as "hold still and look".
+func set_readability_boost(on: bool) -> void:
+	_readability_boost = on
+
+
+func cone_alpha_floor() -> float:
+	return CONE_VFX_ALPHA_MAX if _readability_boost else CONE_VFX_ALPHA_MIN
 
 
 # --- E05-S6: visibility with an optional external multiplier (smoke/cover). ---

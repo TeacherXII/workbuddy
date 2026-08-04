@@ -62,9 +62,14 @@ func test_all_signals_can_connect_and_emit():
 	_bus.vision_stimulus.emit(1, null, 0.8)
 	_bus.vision_looming.emit(1)
 	_bus.suspicion_changed.emit(1, 42.0, EventBus.SusTier.SUSPICIOUS)
-	_bus.guard_fsm_changed.emit(1, "CALM", "SUSPICIOUS")
+	# [D6, Batch C] guard_fsm_changed now carries EventBus.GuardState ints,
+	# not key strings. [D8] interactable_triggered is now 3-arg with an
+	# InteractableType + payload Dictionary.
+	_bus.guard_fsm_changed.emit(1, EventBus.GuardState.CALM,
+		EventBus.GuardState.SUSPICIOUS)
 	_bus.exposure_detected.emit(1, null)
-	_bus.interactable_triggered.emit(1, "TRAP")
+	_bus.interactable_triggered.emit(1, EventBus.InteractableType.TRAP,
+		{"charges": 2})
 
 	assert_signal_emitted(_bus, "time_scale_changed")
 	assert_signal_emitted(_bus, "guard_transform_dirty")

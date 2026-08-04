@@ -65,7 +65,11 @@ jobs:
             -gexit \
             -glog=3 \
             > gut_output.txt 2>&1 || true
-          SUMMARY=$(grep -Ei "^[[:space:]]*(scripts|tests|passing|failing)[[:space:]]*[:=]?[[:space:]]*[0-9]+" gut_output.txt 2>/dev/null \
+          # N-7: capture "Risky/Pending N" too. GUT's summary.gd only prints
+          # that row via _log_non_zero_total(), i.e. it is ABSENT on a clean
+          # run — so its mere presence signals risky/pending tests. Surfacing
+          # it in SUMMARY makes gate G4 readable from the commit status API.
+          SUMMARY=$(grep -Ei "^[[:space:]]*(scripts|tests|passing|failing|risky/pending)[[:space:]]*[:=]?[[:space:]]*[0-9]+" gut_output.txt 2>/dev/null \
             | sed -E 's/^[[:space:]]+//' \
             | awk '!seen[$0]++' \
             | tr '\n' ' ' | sed 's/  */ /g' | sed 's/ *$//')
@@ -117,9 +121,22 @@ jobs:
             echo "::error::GUT produced no parsable summary (crash/import issue) — job fails."
             exit 1
           fi
+          # N-7 (Batch C, principal-approved; QA plan gate G4): a [Risky] test
+          # is a test that asserted NOTHING (or a skipped script). It used to
+          # pass this gate silently, so an empty test could masquerade as
+          # coverage. Mirror the [Failed] check: any [Risky] line, or a
+          # non-zero "Risky/Pending" total, now fails the job as well.
+          if grep -qF '[Risky]' gut_output.txt 2>/dev/null \
+             || echo "$SUMMARY" | grep -qE 'Risky/Pending[[:space:]]*[:=]?[[:space:]]*[1-9][0-9]*'; then
+            RISKY_N=$(grep -cF '[Risky]' gut_output.txt 2>/dev/null || echo 0)
+            echo "::error::GUT reports $RISKY_N risky/pending test(s) — job fails (N-7 gate)."
+            echo ">>> Risky lines:"
+            grep -nF '[Risky]' gut_output.txt 2>/dev/null | head -20 || true
+            exit 1
+          fi
           if ! grep -qF '[Failed]' gut_output.txt 2>/dev/null \
              && ! echo "$SUMMARY" | grep -qE 'Failing[[:space:]]*[:=]?[[:space:]]*[1-9][0-9]*'; then
-            echo "GUT reports zero failures — job passes."
+            echo "GUT reports zero failures and zero risky tests — job passes."
             exit 0
           fi
           echo "::error::GUT reports failing tests — job fails."
@@ -145,8 +162,12 @@ jobs:
             // so the old check marked fully-green runs as failure.
             // The last two clauses keep infra breakage fail-closed (unchanged
             // behaviour: a missing/unparsable summary must not report success).
+            // N-7: keep this status consistent with step 3's gate — a run that
+            // step 3 failed for risky/pending tests must NOT be posted green.
             const isFail = desc.includes('[Failed]')
               || /Failing[\s:=]*[1-9]\d*/i.test(desc)
+              || desc.includes('[Risky]')
+              || /Risky\/Pending[\s:=]*[1-9]\d*/i.test(desc)
               || desc.includes('fails:[')
               || desc.includes('summary file missing')
               || desc.includes('GUT output not parsed');

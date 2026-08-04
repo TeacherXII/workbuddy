@@ -219,7 +219,7 @@ res://arts/
 - **材质**：3（甲金属暗锈 `#7A2E2E` 点染 / 身 / 提灯）；提灯侧**暖边 rim**（威胁），其余冷边。
 - **视野锥**：挂守卫的半透明 `MeshInstance3D` 地面光斑，冷白 `#9FB8C9` 低不透明（art-bible §8.2）；**锥缘脉动 tell**（`shd_cone_edge_pulse`，≤2Hz，V-02）预报「即将扫到」。
 - **FSM 姿态可读**（非颜色，art-bible §4.1 / accessibility-matrix）：CALM 垂灯 / SUSPICIOUS 举灯转身 / ALERT 拔刃灯高举 / SEARCH 灯左右扫 / RETURN 归位。
-- **特效钩子**：暴露脉动（`#7A2E2E` + 图标 + 可关屏震，C-07/V-03）、可疑度条（HUD，图标+数字+亮度，C-02）。
+- **特效钩子**：暴露脉动 `#D64545`（D7 签字；`#7A2E2E` 仅作低不透明填充 α≤0.35）+ 图标 + 可关屏震（C-07/V-03）、可疑度条（HUD，图标+数字+亮度，C-02）。
 
 ### 4.3 守卫变体（Tier2，GDD `patrol-ai` §8 / `vision-cone` §8）
 | 变体 | 剪影（art-bible §4.1） | 配光 | 备注 |
@@ -248,7 +248,7 @@ res://arts/
 | **落足微光** | 落地短暂 `#C8862F` 极低强度光池（emissive quad，**非实时光**以省 R-02） | `vfx_landing_glow.tscn` | 主色板内（C-06）；≤10% 画面纪律（art-bible §2.1） |
 | **声波环** | 同心圆扩散（Tween/shader 自毁），冷 `#3E5C76`，形状编码 | `vfx_sound_ring.tscn` | 形状+扩散+标签非色相（C-05/C-03）；同屏 ≤8（G-02） |
 | **凝神态压暗遮罩** | WorldEnvironment 曝光降 + 自定义 vignette（`shd_focus_vignette`），**世界空间、无霓虹** | `shd_focus_vignette.gdshader` | 压暗四周提亮可读要素（概念 §2）；ease 非硬切（V-06）；不破肃穆（art-bible §8.4） |
-| **暴露 ALERT** | `#7A2E2E` + 脉动（≤2Hz，V-02）+ 图标 + 可关屏震（V-03） | `vfx_exposure_alert.tscn` + `ui_icon_alert` | **绝不单色**（C-07）；色盲模式→`#C8862F` 高亮+图标（C-06） |
+| **暴露 ALERT** | `#D64545`（D7 签字；`#7A2E2E` 仅作低不透明填充 α≤0.35）+ 脉动（≤2Hz，V-02）+ 图标 + 可关屏震（V-03） | `vfx_exposure_alert.tscn` + `ui_icon_alert` | **绝不单色**（C-07）；色盲模式→`#C8862F` 高亮+图标（C-06） |
 | **可疑度指示** | 细条 + 图标（眼/问号/叹号）+ 亮度递增 | `ui_suspicion_bar` | 图标+数字+亮度，颜色仅辅助（C-02 ≥7:1） |
 | **灰烬/尘埃** | additive 粒子，微暖 `#C8862F` 极低（光柱内） | `vfx_dust_motes.tscn` / `vfx_ash_puff.tscn` | 全局 additive ≤2000（R-08）；`time_scale` 同步（T-04） |
 
