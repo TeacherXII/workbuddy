@@ -194,7 +194,7 @@ func _build_suspicion_bar() -> void:
 	_suspicion = ProgressBar.new()
 	_suspicion.min_value = 0.0
 	_suspicion.max_value = 100.0
-	_suspicion.value = 0.0
+	_suspicion.value = 0.0   # construction-time init, NOT a runtime writer (L1-c)
 	_suspicion.show_percentage = false
 	_suspicion.custom_minimum_size = Vector2(240, 18)
 	_suspicion.position = Vector2(16, 40)
@@ -250,12 +250,21 @@ func _refresh_top_guard() -> void:
 			best_id = gid
 	_top_guard_id = best_id
 
+	# N-4: clamp ONCE, then drive EVERY readout from that one figure. Deriving
+	# the number from the raw `best_val` let an out-of-range emission print
+	# "150" next to a bar pinned at 100 — and per C-02 the number is the
+	# authoritative carrier, so the two must never disagree.
+	var shown := clampf(best_val, 0.0, 100.0)
+	# ★ LANDMINE 1: this is the single write site, and it runs on BOTH branches.
+	# Writing it only on the visible branch left a hidden bar holding the last
+	# value, which then flashed for one frame when the next guard stirred.
+	_suspicion.value = shown
+
 	if best_id < 0 or best_val < SUS_BAR_HIDE_EPS:
 		_set_bar_visible(false)
 		return
 	_set_bar_visible(true)
-	_suspicion.value = clampf(best_val, 0.0, 100.0)      # ★ single write site
-	_sus_value.text = "%d" % roundi(best_val)
+	_sus_value.text = "%d" % roundi(shown)
 	_apply_tier_visuals(int(_suspicion_by_guard[best_id]["tier"]))
 
 

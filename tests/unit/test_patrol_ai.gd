@@ -560,6 +560,26 @@ func test_guard_position_synced_to_sound_system() -> void:
 	assert_true(near_payload["target_guard_ids"].has(_brain.guard_id),
 		"★W1: emit() must now collect this guard into target_guard_ids")
 
+	# (4) ★ LANDMINE 2 — the reverse proof (batchc-qa-plan §3.2 L2-e).
+	# (3) alone cannot separate "read the NEW position" from "read a stale one
+	# that happened to be in range". Walking the guard back OUT of the radius
+	# must EXCLUDE it again — that only holds if update_guard OVERWRITES
+	# _guard_positions instead of accumulating, and if emit() re-reads it every
+	# call instead of latching membership. The grid entry is deliberately left
+	# at (10,0,0) so the coarse broad-phase still offers this guard up; the
+	# precise registry position is what has to reject it.
+	_brain.set_transform_state(Vector3(40, 0, 0), 0.0)
+	_tick(1, 0.0)
+	assert_eq(sound._guard_positions[_brain.guard_id], Vector3(40, 0, 0),
+		"★W1: walking away must back-fill too — the registry is not write-once")
+	var left_payload := sound.emit({
+		"origin": Vector3(10, 0, 0), "radius": 5.0,
+		"intensity": 1.0, "source": SoundPropagator.SOURCE_FOOTFALL,
+	})
+	assert_false(left_payload["target_guard_ids"].has(_brain.guard_id),
+		"★L2-e: a guard that walked out of the radius must drop OUT of "
+			+ "target_guard_ids — if it lingers, emit() is reading a stale position")
+
 
 # =============================================================================
 # H11 · E08-S8 — posture readability is shape/word coded, never color (C-05)

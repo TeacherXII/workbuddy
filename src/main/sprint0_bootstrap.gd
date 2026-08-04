@@ -107,27 +107,16 @@ func _wire_signals() -> void:
 	# emitter: its _ready() binds player_step_committed -> emit(enriched).
 	_sound.set_event_bus(_bus)
 	add_child(_sound)
+	# E05 contract: forward the raw vision stimulus onto the bus. Other
+	# consumers (GuardBrain, telemetry) subscribe here. KEEP.
 	_vc.vision_stimulus.connect(_bus.vision_stimulus.emit)
-	_vc.vision_stimulus.connect(_on_vision_stimulus)
-
-
-func _on_vision_stimulus(guard_id: int, _target: Node, visibility: float) -> void:
-	if _bus == null:
-		return
-	var suspicion := clampf(visibility * 100.0, 0.0, 100.0)
-	# E01-S9: suspicion_changed now carries SusTier (3rd arg). Pre-FSM (Sprint 0)
-	# we derive a provisional tier from the continuous value; E08-S2 replaces
-	# this with the real 25/60/10 threshold logic.
-	_bus.suspicion_changed.emit(guard_id, suspicion, _suspicion_tier(suspicion))
-
-
-func _suspicion_tier(value: float) -> int:
-	# Provisional tier mapping until E08-S2 FSM lands (thresholds 25/60/10).
-	if value >= 60.0:
-		return EventBus.SusTier.ALERT
-	if value >= 25.0:
-		return EventBus.SusTier.SUSPICIOUS
-	return EventBus.SusTier.CALM
+	# Batch C / N-6: the Sprint 0 provisional shim that converted
+	# `visibility * 100` into a `suspicion_changed` emission is DELETED.
+	# It was a shadow writer on a legitimate channel: in the demo scene it
+	# raced GuardBrain at >=10Hz over the same guard_id (landmine (1) merely
+	# moved one layer up), and unit tests could never see it because
+	# test_hud_slice.gd never loads this bootstrap.
+	# After E08-S2, GuardBrain is the SOLE producer of `suspicion_changed`.
 
 
 func _process(_delta: float) -> void:

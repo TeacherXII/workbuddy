@@ -235,6 +235,33 @@ func test_suspicion_bar_updates_on_suspicion_changed():
 
 
 # =============================================================================
+# H13 / N-4 · E09-S2 — the bar clamps to [0,100], driven by suspicion_changed
+# =============================================================================
+# ⚠ N-4 (batchc-qa-plan §3.4 / L1-e): this test USED to drive the clamp through
+#   `vision_stimulus.emit(1, null, 1.0)`. Landmine 1 deletes that writer, so the
+#   old body would assert 100.0 against a bar frozen at 0.0. QA's mandated
+#   disposition is REWRITE (not delete) — deleting it would silently drop all
+#   coverage of hud_slice.gd's `clampf(best_val, 0.0, 100.0)` guard, leaving the
+#   only defense against an out-of-range GuardBrain emission untested.
+func test_suspicion_bar_clamps_to_range():
+	# Over the ceiling: GuardBrain clamps internally, but the HUD must not trust
+	# its producer — a 150 would otherwise blow past ProgressBar.max_value.
+	_bus.suspicion_changed.emit(1, 150.0, EventBus.SusTier.ALERT)
+	assert_almost_eq(_hud._suspicion.value, 100.0, 0.0001,
+		"N-4: an over-range suspicion must clamp to 100, not overflow the bar")
+	assert_eq(_hud._sus_value.text, "100",
+		"N-4: the numeric readout must show the clamped value, not the raw 150")
+
+	# Under the floor: a negative must clamp to 0 and take the bar silent
+	# (Pillar 4 — a quiet guard shows nothing).
+	_bus.suspicion_changed.emit(1, -25.0, EventBus.SusTier.CALM)
+	assert_almost_eq(_hud._suspicion.value, 0.0, 0.0001,
+		"N-4: a negative suspicion must clamp to 0, never drive the bar backwards")
+	assert_false(_hud._suspicion.visible,
+		"N-4: clamped to 0 the guard is quiet, so the bar must hide")
+
+
+# =============================================================================
 # H14 · E09-S2 — one bar, showing the loudest guard only (C7)
 # =============================================================================
 func test_suspicion_bar_shows_top_guard_only():
