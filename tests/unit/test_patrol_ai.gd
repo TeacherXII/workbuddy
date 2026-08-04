@@ -113,6 +113,31 @@ func _tick(n: int, vis: float) -> void:
 		_brain._decide(GuardBrain.TICK_DT)
 
 
+func _wire_sound() -> SoundPropagator:
+	# E06-S4 helper. The guard sits at the origin; decoys are placed on +Z so
+	# `dist_m` reads directly as metres from the guard.
+	var sound := SoundPropagator.new()
+	autofree(sound)
+	_brain.set_transform_state(Vector3.ZERO, 0.0)
+	_brain.set_sound_system(sound)
+	return sound
+
+
+func _emit_decoy(dist_m: float, surface: String = "STONE") -> Vector3:
+	# Shapes exactly what SoundPropagator._on_decoy_landed puts on the bus, so
+	# the consumer contract is exercised (not a hand-rolled fake).
+	var origin := Vector3(0, 0, dist_m)
+	_brain._on_sound_emitted({
+		"origin": origin,
+		"radius": SoundPropagator.DECOY_RADIUS,
+		"intensity": SoundPropagator.DECOY_INTENSITY,
+		"source": SoundPropagator.SOURCE_DECOY,
+		"surface": surface,
+		"target_guard_ids": [_brain.guard_id],
+	})
+	return origin
+
+
 func _force_state(state: int) -> void:
 	# Jump straight to a state for table-driven assertions. Clears the ledger so
 	# the following assertions only see the transition under test.
@@ -338,6 +363,48 @@ func test_fsm_tick_le_10hz() -> void:
 	_brain.tick_real(0.0)
 	assert_eq(_brain.decision_count, after_catchup,
 		"the dropped backlog must not leak into the next frame (accumulator reset)")
+
+	# ── H27 (Batch D, E10-S2) — G-04 runtime carrier for the DECOY path ───────
+	# control-manifest G-04 (:84) caps the suspicion FSM at 10Hz. The behaviour
+	# already existed (DECISION_HZ / decision_count, Batch C); what was missing
+	# was an assertion that the NEW DECOY floor did not smuggle in a second,
+	# unthrottled decision path.
+	#
+	# This is a placement proof: if the D12-A floor were written inside
+	# _on_sound_emitted (which runs at SOUND-EVENT frequency, unbounded) instead
+	# of inside _decide (10Hz), suspicion would move here WITHOUT decision_count
+	# moving — i.e. an off-books FSM input. Both assertions below would fail.
+	var sound := SoundPropagator.new()
+	autofree(sound)
+	_brain.set_transform_state(Vector3.ZERO, 0.0)
+	_brain.set_sound_system(sound)
+	var before_barrage := _brain.decision_count
+	var sus_before_barrage := _brain.suspicion
+	for i in range(200):
+		_brain._on_sound_emitted({
+			"origin": Vector3(0, 0, SoundPropagator.DECOY_RADIUS * 0.5),
+			"radius": SoundPropagator.DECOY_RADIUS,
+			"intensity": SoundPropagator.DECOY_INTENSITY,
+			"source": SoundPropagator.SOURCE_DECOY,
+			"surface": "STONE",
+			"target_guard_ids": [_brain.guard_id],
+		})
+	assert_eq(_brain.decision_count, before_barrage,
+		"@ci:G-04 — 200 decoy events must add ZERO decisions on their own; " +
+		"intake may only BUFFER (got %d extra)"
+			% (_brain.decision_count - before_barrage))
+	assert_eq(_brain.suspicion, sus_before_barrage,
+		"@ci:G-04 — the DECOY floor must NOT be applied in _on_sound_emitted. " +
+		"Suspicion moved outside a decision tick, so the FSM input is unthrottled.")
+
+	# Draining the barrage still costs at most the 10Hz budget: 2.0s of real time
+	# yields <= 20 decisions no matter how many sounds were queued.
+	var before_drain := _brain.decision_count
+	for i in range(120):
+		_brain.tick_real(1.0 / 60.0)
+	assert_between(_brain.decision_count - before_drain, 10, 20,
+		"@ci:G-04 — draining 200 buffered decoys must still respect " +
+		"DECISION_HZ=10 over 2.0s (got %d)" % (_brain.decision_count - before_drain))
 
 
 # =============================================================================
@@ -715,3 +782,134 @@ func test_sound_only_alert_falls_through_to_search() -> void:
 		"E7: with no vision the guard must fall through ALERT -> SEARCH")
 	assert_eq(_brain.last_known, Vector3(6, 0, 0),
 		"E7: last_known must point at the sound origin, not at nothing")
+
+
+# =============================================================================
+# E06-S4 (Batch D) — DECOY redirect [D12-A]. See batchd-impl-spec §3.5.
+# =============================================================================
+func test_decoy_single_throw_crosses_threshold_via_floor() -> void:
+	# ★★ H26 · N-9 REVERSE ASSERTION ★★
+	# Why this test exists: if anyone removes the DECOY suspicion floor and falls
+	# back to the pure KS x falloff path, this test MUST go RED.
+	#
+	# The maths that makes it a lock:
+	#   KS(15.0) x falloff_max(1.0) = 15.0 < THR_SUSP(25.0)
+	#   => on the pure additive path a SINGLE decoy cannot cross 25 at ANY
+	#      distance. At the mid-radius point tested below it yields only 7.5.
+	#   => "one decoy reaches THR_SUSP" is therefore mathematically unreachable
+	#      without the floor. That is the reverse lock.
+	_wire_sound()
+	assert_eq(_brain.suspicion, 0.0, "precondition: guard starts CALM at S=0")
+	assert_eq(_brain.get_state(), EventBus.GuardState.CALM, "precondition: CALM")
+
+	# Front guard rail: assert the PREMISE, so that "someone retuned KS/THR_SUSP"
+	# and "someone deleted the floor" fail with different messages.
+	assert_lt(GuardBrain.KS * 1.0, GuardBrain.THR_SUSP,
+		"N-9 premise: pure KS x falloff must be INSUFFICIENT. " +
+		"If this fires, the reverse assertion below is no longer a valid lock.")
+
+	# A SINGLE decoy, deliberately at the mid-radius point (4m of 8m) — it cannot
+	# even reach falloff_max. Pure path = 15 * 0.5 = 7.5 pts.
+	var mid := SoundPropagator.DECOY_RADIUS * 0.5
+	_emit_decoy(mid)
+	_tick(1, 0.0)
+
+	assert_gte(_brain.suspicion, GuardBrain.THR_SUSP,
+		"A SINGLE decoy must reach THR_SUSP. Pure KS x falloff yields only %.1f pts "
+			% (GuardBrain.KS * 0.5) +
+		"at mid-radius — if this fails, the D12-A suspicion floor has been " +
+		"removed or bypassed. DECOY is a core verb; it MUST work on one throw. [N-9]")
+	assert_eq(_brain.get_state(), EventBus.GuardState.SUSPICIOUS,
+		"the floor must actually drive the FSM, not just the scalar")
+
+
+func test_decoy_redirect_respects_vision_guard() -> void:
+	# H24 / [M-3] evidence: the `vis > STIM_EPS` protection in _update_last_known
+	# is NOT weakened by DECOY. A decoy thrown while the guard can see the player
+	# must not drag last_known away — otherwise DECOY becomes a universal
+	# no-line-of-sight escape key (dominant-strategy red line).
+	_wire_sound()
+	_brain.set_target_position(Vector3(1, 0, 1))
+
+	var decoy_origin := _emit_decoy(SoundPropagator.DECOY_RADIUS * 0.5)
+	_brain._pending_vision = 0.9
+	_brain._decide(GuardBrain.TICK_DT)
+	assert_eq(_brain.last_known, Vector3(1, 0, 1),
+		"[M-3] while the player is VISIBLE, last_known must stay on the real " +
+		"target position, not jump to the decoy at %s" % decoy_origin)
+	assert_gte(_brain.suspicion, GuardBrain.THR_SUSP,
+		"the floor still applies — the decoy is heard, it just cannot mislead")
+
+	# With no vision the ordinary priority applies and the sound origin wins.
+	_brain.suspicion = 0.0
+	_brain._set_fsm(EventBus.GuardState.CALM)
+	_brain._last_decoy_rt = -999.0
+	var far_origin := _emit_decoy(SoundPropagator.DECOY_RADIUS * 0.25)
+	_tick(1, 0.0)
+	assert_eq(_brain.last_known, far_origin,
+		"with vis == 0 the decoy origin becomes last_known (priority 2)")
+
+	# Edge (3): maxf must never DOWNGRADE an already-alert guard. A decoy that
+	# calmed guards down would be a "de-escalation device", not a distraction.
+	_brain.suspicion = 75.0
+	_brain._last_decoy_rt = -999.0
+	_emit_decoy(SoundPropagator.DECOY_RADIUS * 0.5)
+	_tick(1, 0.0)
+	assert_gt(_brain.suspicion, GuardBrain.THR_SUSP,
+		"maxf(S, THR_SUSP) must not pull an alert guard DOWN to 25 (got %.2f)"
+			% _brain.suspicion)
+
+
+func test_decoy_redirect_cooldown() -> void:
+	# H25: DECOY_REDIRECT_COOLDOWN_RT(3.0s, real clock, PER GUARD) stops decoy
+	# spam from pinning a guard at THR_SUSP forever.
+	_wire_sound()
+
+	# (a) First throw arms the floor.
+	_emit_decoy(SoundPropagator.DECOY_RADIUS * 0.5)
+	_tick(1, 0.0)
+	assert_gte(_brain.suspicion, GuardBrain.THR_SUSP, "first decoy floors to THR_SUSP")
+	var armed_at: float = _brain._last_decoy_rt
+	assert_gt(armed_at, -999.0, "the cooldown stamp must be written on use")
+
+	# (b) A second throw INSIDE the cooldown window must not re-floor. Suspicion
+	# is dropped below the threshold first so a re-floor would be visible.
+	_brain.suspicion = 1.0
+	_emit_decoy(SoundPropagator.DECOY_RADIUS * 0.5)
+	_tick(1, 0.0)
+	# Pure path only: 1.0 + KS*0.5 = 8.5, comfortably under THR_SUSP.
+	assert_lt(_brain.suspicion, GuardBrain.THR_SUSP,
+		"a decoy inside the %.1fs cooldown must NOT re-apply the floor (got %.2f)"
+			% [GuardBrain.DECOY_REDIRECT_COOLDOWN_RT, _brain.suspicion])
+	assert_eq(_brain._last_decoy_rt, armed_at,
+		"a suppressed decoy must not refresh the cooldown stamp (no rolling lock-out)")
+	assert_false(_brain._pending_decoy,
+		"★ the pending flag must be cleared even when suppressed — otherwise it " +
+		"fires late the moment the cooldown expires")
+
+	# (c) Past the window the floor works again. The clock is REAL time, so the
+	# stamp is rewound rather than sleeping 3s in a unit test.
+	_brain._last_decoy_rt -= (GuardBrain.DECOY_REDIRECT_COOLDOWN_RT + 0.1)
+	var rewound: float = _brain._last_decoy_rt
+	_brain.suspicion = 1.0
+	_emit_decoy(SoundPropagator.DECOY_RADIUS * 0.5)
+	_tick(1, 0.0)
+	assert_gte(_brain.suspicion, GuardBrain.THR_SUSP,
+		"once %.1fs of REAL time has passed, a decoy must floor again"
+			% GuardBrain.DECOY_REDIRECT_COOLDOWN_RT)
+	# Compare against the REWOUND stamp, not `armed_at`: the whole test body runs
+	# inside a single millisecond, so Time.get_ticks_msec() has not moved and
+	# `> armed_at` would be a flaky, clock-speed-dependent assertion.
+	assert_gte(_brain._last_decoy_rt - rewound,
+		GuardBrain.DECOY_REDIRECT_COOLDOWN_RT,
+		"a live use must re-stamp the cooldown to 'now' (>= one full window " +
+		"ahead of the rewound value)")
+
+	# (d) The cooldown is real-time based (T-02 / ADR-003): time_scale is irrelevant.
+	Engine.time_scale = 0.25
+	_brain.suspicion = 1.0
+	_emit_decoy(SoundPropagator.DECOY_RADIUS * 0.5)
+	_tick(1, 0.0)
+	Engine.time_scale = 1.0
+	assert_lt(_brain.suspicion, GuardBrain.THR_SUSP,
+		"the cooldown must be measured on the WALL clock, not the scaled clock")

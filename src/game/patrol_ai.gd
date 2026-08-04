@@ -34,6 +34,17 @@ const GRACE_RT := 1.2         # s (real) exposure grace
 const DECISION_HZ := 10.0     # Hz (real) G-04 ceiling
 const TICK_DT := 0.1          # s       = 1.0 / DECISION_HZ (derived)
 
+# ── E06-S4 (Batch D) DECOY redirect [D12-A] ──────────────────────────────────
+# Why a floor exists at all (N-9): a single decoy is MATHEMATICALLY unable to
+# raise a calm guard to SUSPICIOUS on the pure additive path —
+#   KS(15.0) x falloff_max(1.0) = 15.0  <  THR_SUSP(25.0)
+# so the core verb would fail silently while every test stayed green. D12-A
+# resolves this with a floor (maxf), NOT a new gain constant: no KS_DECOY, no
+# change to KS, no change to the [0,1] intensity domain, no new scale.
+const DECOY_REDIRECT_COOLDOWN_RT := 3.0   # s (real clock) anti-spam, PER GUARD.
+                                          # The ONLY new free value in Batch D
+                                          # (principal-confirmed, D12-A).
+
 # ── D10 constants (adopted verbatim by the showrunner) ───────────────────────
 const LOST_TARGET_RT := 0.5      # s (real) ALERT->SEARCH "lost the target" test
 const RETURN_SETTLE_RT := 1.0    # s (real) RETURN->CALM minimal Sprint 1 settle
@@ -80,6 +91,10 @@ var _pending_sound_max: float = 0.0
 var _pending_sound_count: int = 0
 var _pending_sound_origin: Vector3 = Vector3.ZERO
 var _pending_target: Node = null
+# E06-S4: set by _on_sound_emitted (intake), consumed in _decide (10Hz). The
+# split is deliberate — see the placement note in _decide.
+var _pending_decoy: bool = false
+var _last_decoy_rt: float = -999.0            # s (real clock); sentinel = never
 
 # ── Emission throttles (E08-S6) ──────────────────────────────────────────────
 var _last_emitted_sus: float = -999.0
@@ -245,6 +260,23 @@ func _decide(dt: float) -> void:
 
 	# (6)..(10)
 	_update_last_known(vis)
+	# (6b) E06-S4 [D12-A] DECOY suspicion floor. Ordering is contractual:
+	#   AFTER _update_last_known  — so the §3.12 priority (visible target > sound
+	#     origin > keep) settles FIRST. A decoy raises alarm but must never
+	#     override line of sight [M-3]; that keeps DECOY from being a universal
+	#     escape key.
+	#   BEFORE _step_fsm          — so the raised value is what the thresholds
+	#     actually see this same tick, instead of one tick late.
+	# maxf, not assignment: an already-ALERT guard must never be talked DOWN to
+	# 25 by a thrown stone. DECOY guarantees "at least investigating", nothing more.
+	if _pending_decoy:
+		var now_rt: float = Time.get_ticks_msec() / 1000.0
+		if (now_rt - _last_decoy_rt) >= DECOY_REDIRECT_COOLDOWN_RT:
+			suspicion = maxf(suspicion, THR_SUSP)
+			_last_decoy_rt = now_rt
+		# Cleared unconditionally, including when suppressed by the cooldown —
+		# a surviving flag would re-fire the instant the window expires.
+		_pending_decoy = false
 	_step_exposure(vis, dt)
 	_step_fsm(vis, dt)
 	_ensure_path()
@@ -290,6 +322,13 @@ func _on_sound_emitted(payload: Dictionary) -> void:
 	_pending_sound_max = maxf(_pending_sound_max, falloff)
 	_pending_sound_count += 1
 	_pending_sound_origin = origin
+	# E06-S4 [D12-A]: MARK ONLY. The suspicion floor itself is applied in
+	# _decide(), never here — this handler runs at sound-event frequency, which
+	# is unbounded, and moving the FSM from here would breach G-04 (<=10Hz) while
+	# bypassing decision_count entirely. Asserted by
+	# test_patrol_ai.gd::test_fsm_tick_le_10hz (H27).
+	if payload.get("source", "") == SoundPropagator.SOURCE_DECOY:
+		_pending_decoy = true
 
 
 # §3.12 write priority: (1) real target position when seen, (2) sound origin,
