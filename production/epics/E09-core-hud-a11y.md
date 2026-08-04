@@ -14,7 +14,7 @@
 - 世界内要素编排（锥/光池/声环/残影，由各系统绘制，本系统只管可见性）：见 E05/E04/E06/E03。
 - 屏幕 HUD 摘要：可疑度条、当前道具/charges、凝神状态、下一步落点预演。
 - 可访问性设置分区：色盲模式、时间缩放滑杆、屏震、雾、动态模糊、文本缩放、字幕。
-- 暴露 ALERT UI（#7A2E2E+图标+可关屏震，C-07/V-03）+ 软重开 UI。
+- 暴露 ALERT UI：`#D64545`（D7 签字；`#7A2E2E` 仅作低不透明填充 α≤0.35）+图标+可关屏震（C-07/V-03）+ 软重开 UI。
 
 ## 关键 Story 列表
 
@@ -61,9 +61,9 @@
 ### E09-S6 · 作为（玩家）我要（看到暴露 ALERT 并软重开）以便（失败有反馈且可恢复）
 **Sprint 0**：否（Sprint 1）
 **验收**
-- Given core-hud-a11y §5「暴露 #7A2E2E+脉动(≤2Hz V-02)+图标+可关屏震(V-03)；绝不单色(C-07)」；patrol-ai §2（exposure_detected → 软失败）。
+- Given core-hud-a11y §5「暴露 `#D64545`（D7 签字；`#7A2E2E` 仅作低不透明填充 α≤0.35）+脉动(≤2Hz V-02)+图标+可关屏震(V-03)；绝不单色(C-07)」；patrol-ai §2（exposure_detected → 软失败）。
 - When E08 发 `exposure_detected`。
-- Then HUD 显示暴露 ALERT（#7A2E2E+图标+脉动≤2Hz；色盲模式→#C8862F 高亮+图标 C-06）；屏震默认关（V-03）；触发软重开 UI（经 E01 SaveManager 检查点，C4）。
+- Then HUD 显示暴露 ALERT：`#D64545`（D7 签字；`#7A2E2E` 仅作低不透明填充 α≤0.35）+图标+脉动≤2Hz；色盲模式→`#C8862F` 高亮+图标（C-06）；屏震默认关（V-03）；触发软重开 UI（经 E01 SaveManager 检查点，C4）。
 **关联**：core-hud-a11y §5；patrol-ai §2；consistency-review C4；control-manifest C-06/C-07/V-02/V-03。
 
 ## 依赖
