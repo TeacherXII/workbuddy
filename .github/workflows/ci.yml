@@ -126,12 +126,19 @@ jobs:
           # pass this gate silently, so an empty test could masquerade as
           # coverage. Mirror the [Failed] check: any [Risky] line, or a
           # non-zero "Risky/Pending" total, now fails the job as well.
-          if grep -qF '[Risky]' gut_output.txt 2>/dev/null \
+          # GUT v9.3.0 emits genuine risky/pending as "[Risky]:  <msg>" /
+          # "[Pending]:  <msg>" (logger._output_type appends ":  " after the
+          # bracket — verified against GUT source), and a skipped script as
+          # "[Risky] Script was skipped:". We match those EXACT forms, NOT a
+          # bare "[Risky]", so a passing test whose DESCRIPTION merely mentions
+          # the word (e.g. "must never contain the N-7 risky token") cannot
+          # trip the gate (see Batch D CI false-red incident, H29 wording).
+          if grep -qE '\[Risky\]:|\[Pending\]:|\[Risky\] Script was skipped' gut_output.txt 2>/dev/null \
              || echo "$SUMMARY" | grep -qE 'Risky/Pending[[:space:]]*[:=]?[[:space:]]*[1-9][0-9]*'; then
-            RISKY_N=$(grep -cF '[Risky]' gut_output.txt 2>/dev/null || echo 0)
+            RISKY_N=$(grep -cE '\[Risky\]:|\[Pending\]:|\[Risky\] Script was skipped' gut_output.txt 2>/dev/null || echo 0)
             echo "::error::GUT reports $RISKY_N risky/pending test(s) — job fails (N-7 gate)."
             echo ">>> Risky lines:"
-            grep -nF '[Risky]' gut_output.txt 2>/dev/null | head -20 || true
+            grep -nE '\[Risky\]:|\[Pending\]:|\[Risky\] Script was skipped' gut_output.txt 2>/dev/null | head -20 || true
             exit 1
           fi
           if ! grep -qF '[Failed]' gut_output.txt 2>/dev/null \
@@ -166,7 +173,7 @@ jobs:
             // step 3 failed for risky/pending tests must NOT be posted green.
             const isFail = desc.includes('[Failed]')
               || /Failing[\s:=]*[1-9]\d*/i.test(desc)
-              || desc.includes('[Risky]')
+              || desc.includes('[Risky]:')
               || /Risky\/Pending[\s:=]*[1-9]\d*/i.test(desc)
               || desc.includes('fails:[')
               || desc.includes('summary file missing')

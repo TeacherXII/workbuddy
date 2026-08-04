@@ -63,7 +63,7 @@ func test_budget_assert_is_warn_only() -> void:
 	for line in output:
 		log += line + "\n"
 	assert_false("[Risky]" in log,
-		"N-12: WARN-ONLY summary must NEVER contain [Risky] (ci.yml N-7 fail-closed would hang) [H29]")
+		"N-12: WARN-ONLY summary must NEVER contain the N-7 risky token (ci.yml fail-closed would hang) [H29]")
 
 
 func test_budget_assert_emits_warn_on_violation() -> void:
