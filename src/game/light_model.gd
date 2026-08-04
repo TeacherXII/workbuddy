@@ -9,6 +9,17 @@ extends RefCounted
 const L_DARK := 0.20
 const L_BRIGHT := 0.60
 
+# ── E04-S5 extinction cutscene (R-04 / R-05 / V-06) [D13-A] ──────────────────
+# R-05: fog ramp <= 0.12 additive above base, <= 0.4s lifetime, then returns to 0.
+# R-04: volumetric fog base ceiling <= 0.05 (absolute peak = base + delta <= 0.17).
+# V-06: vignette eased (sin), NEVER a hard linear cut.
+const FOG_BASE_MAX    := 0.05              # -  R-04 ceiling (control-manifest :21)
+const FOG_RAMP_PEAK   := 0.12              # -  R-05 additive peak ABOVE base (:22, C15 reading)
+const FOG_RAMP_MAX_RT := 0.4               # s  R-05 hard ceiling on ramp lifetime (:22)
+const FOG_RAMP_RT     := 0.30              # s  chosen lifetime; 0.30 <= 0.40 (25% margin, GRACE_RT convention)
+const VIGNETTE_EASE   := Tween.EASE_IN_OUT # -  V-06 "ease, no hard-cut flash" (:50)
+const VIGNETTE_TRANS  := Tween.TRANS_SINE  # -  V-06 no flash/step. ⛔ NEVER TRANS_LINEAR.
+
 const EventBus = preload("res://src/core/event_bus.gd")
 const SpatialHashGrid3D = preload("res://src/core/spatial_hash_grid.gd")
 
@@ -24,6 +35,7 @@ var _shadow_boxes: Array = []   # each: {"center": Vector3, "radius": float}
 # the same signal cross-system; this local signal mirrors it so the model can be
 # driven/tested without a scene tree (Sprint 0 StepCommit/VisionCone pattern).
 signal light_state_changed(light_id: int, state: int)
+signal fog_ramp_tick(density_delta: float, progress: float)   # E04-S5: per-frame extinction ramp tick (visual-only, N-10)
 
 var _light_states: Dictionary = {}   # light_id -> LightState (int)
 var _lights: Dictionary = {}         # light_id -> Vector3 (position)
@@ -113,6 +125,11 @@ func toggle_light(light_id: int) -> void:
 	if cur == EventBus.LightState.EXTINGUISHED:
 		next = EventBus.LightState.LIT
 	set_light_state(light_id, next)
+	# E04-S5: the extinction cutscene ramp is driven ONLY by a real toggle, after
+	# the state has already flipped (and its single dirty-cell recompute ran).
+	# [D13-A / N-10] begin_extinction_ramp does NOT call mark_cell_dirty.
+	if next == EventBus.LightState.EXTINGUISHED:
+		begin_extinction_ramp(light_id)
 
 
 # ======================= E04-S7 dirty-cell recompute =======================
@@ -160,3 +177,62 @@ func _cell_of(pos: Vector3) -> Vector3i:
 func _cell_key(pos: Vector3) -> String:
 	var c := _cell_of(pos)
 	return "%d,%d,%d" % [c.x, c.y, c.z]
+
+
+# ===================== E04-S5 extinction cutscene (D13-A) =====================
+# VISUAL-ONLY fog/vignette ramp. [N-10] The occlusion/light-level flip happens
+# instantly inside toggle_light() (one mark_cell_dirty); this ramp drives ONLY
+# volumetric-fog delta + vignette easing + realtime-light release timing. It
+# MUST NOT read/write any gameplay state and MUST NOT re-enter mark_cell_dirty.
+
+var _ramp_active: bool = false
+var _ramp_start_rt: float = 0.0      # s, real clock (Time.get_ticks_msec()/1000.0)
+var _ramp_light_id: int = -1         # light id whose realtime light is freed at ramp end
+var _released_lights: Array = []      # light_ids whose realtime light has been released
+
+static func fog_ramp_delta(t: float) -> float:
+	# Single-hump sin: 0 -> peak @ t=0.5 -> 0. Guarantees R-05 "then returns".
+	var u := clampf(t, 0.0, 1.0)
+	return FOG_RAMP_PEAK * sin(PI * u)
+
+static func fog_density_at(t: float, base: float) -> float:
+	# Absolute peak density = clamped base (R-04) + additive ramp delta (R-05).
+	return minf(base, FOG_BASE_MAX) + fog_ramp_delta(t)
+
+func begin_extinction_ramp(light_id: int) -> void:
+	# Edge ①: re-toggle during a cutscene RESETS (single _ramp_start_rt), never
+	# stacks — two sin curves would peak at 0.24 and blow R-05 (0.12).
+	_ramp_start_rt = Time.get_ticks_msec() / 1000.0
+	_ramp_light_id = light_id
+	_ramp_active = true
+	# [N-10] DO NOT call mark_cell_dirty here; toggle_light() already did exactly once.
+
+func update_ramp() -> void:
+	# Driven once per visual frame. [N-10] never touches gameplay recompute.
+	if not _ramp_active:
+		return
+	var now_rt: float = Time.get_ticks_msec() / 1000.0
+	var t: float = 0.0 if FOG_RAMP_RT <= 0.0 else (now_rt - _ramp_start_rt) / FOG_RAMP_RT
+	# Edge ③: clampf keeps t>1 mapping to sin(PI*1)=0 -> delta 0 (no stuck fog).
+	fog_ramp_tick.emit(fog_ramp_delta(t), clampf(t, 0.0, 1.0))
+	if t >= 1.0:
+		_ramp_active = false
+		_release_realtime_light(_ramp_light_id)   # R-02 x V-06: release at ramp END
+		_ramp_light_id = -1
+
+func is_ramp_active() -> bool:
+	return _ramp_active
+
+func ramp_progress() -> float:
+	if not _ramp_active:
+		return 0.0
+	var now_rt: float = Time.get_ticks_msec() / 1000.0
+	var t: float = 0.0 if FOG_RAMP_RT <= 0.0 else (now_rt - _ramp_start_rt) / FOG_RAMP_RT
+	return clampf(t, 0.0, 1.0)
+
+func _release_realtime_light(light_id: int) -> void:
+	if light_id >= 0 and not (light_id in _released_lights):
+		_released_lights.append(light_id)
+
+func get_released_lights() -> Array:
+	return _released_lights
