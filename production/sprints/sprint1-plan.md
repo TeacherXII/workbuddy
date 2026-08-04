@@ -61,9 +61,14 @@
 ```
 Batch A  词汇+光影地基   E01-S9 · E04-S3/S4/S7 · E03-S5/S6/S7
 Batch B  视野完整+声音   E05-S5/S6/S7 · E06-S1/S2/S3/S5
-Batch C  AI+HUD 核心     E08-S1/S2/S3/S4/S5/S6/S8 · E09-S2/S3/S6
-Batch D  CI 收口         E06-S4 · E09-S4 · E10-S1/S2（含 6 tech-debt）
+Batch C  AI+HUD 核心     E08-S1/S2/S3/S4/S5/S6/S8 · E09-S2/S3/S4/S6
+Batch D  收口            E06-S4 · E04-S5 · E10-S2 · E10-S1（签收，含 6 tech-debt）
 ```
+
+> **拓扑修正（2026-08-04，batchd-design-review §1.0）**：原表有三处与实际不符，已订正——
+> ① **E04-S5 孤儿**：§3 散文写 `E04×4（S3/S4/S5/S7）`，原 Batch A 却只列 S3/S4/S7，S5 从未进入任何批次（`light_model.gd` 无 ramp 实现、`test_light_model.gd` 无 ramp 测试佐证）→ 归入 Batch D。
+> ② **E09-S4 已在 Batch C 完成**（`hud_slice.gd:60` + `test_hud_slice.gd:335/347`）→ 从 Batch D 移至 Batch C。
+> ③ **E10-S1 已闭**（commits f8b3c58 / c1421c5 / 452614f，CI 83/83，N-7 门已落地）→ Batch D 内仅作签收，不重开。
 
 批间冒烟：A→`test_light_model`+`test_step_commit`；B→`test_vision_cone`+`test_sound_propagation`；C→`test_patrol_ai`+`test_hud_slice`；D→全量 GUT 退出 0。
 
@@ -102,6 +107,8 @@ Batch D  CI 收口         E06-S4 · E09-S4 · E10-S1/S2（含 6 tech-debt）
 | **D2** | E07 信号级 vs 实体级 | ✅ **接受信号级完成、实体级延 Sprint 2**（E06-S4/E09-S4 消费已声明信号+测试桩） |
 | **D3** | 6 失败测试修复策略 | ✅ **策略 1+2 组合**（SceneTree harness 使 add_child 有效 + 纯逻辑断言降耦） |
 | **D4** | Story 粒度 | ✅ **保持 33 条**，执行时按批归并 |
+
+> **D11–D15 已裁决**（Batch D，详见 `production/sprints/batchd-design-review.md` §7，v1.1 全部 CLOSED）：D11 `surface` 仅驱动 foley/subtitle（不调制半径）· D12 DECOY 可疑度 floor `maxf(sus,THR_SUSP)` + 3.0s 每守卫冷却 · D13 熄灯 ramp 仅视觉（不影响遮蔽）· D14 静态 CI 扫描 + GUT runtime 合并计达成退出标准 #4 · D15 预算断言 WARN-ONLY，不接入 CI gate。
 
 > QA 计划（quality-lead）按 SOP 在 Sprint 1 执行启动时产出（烟雾测试 + 回归 + 用例填充），不前置于此计划。
 

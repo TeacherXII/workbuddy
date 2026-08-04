@@ -28,11 +28,23 @@ const GAIT_INTENSITY := {
 	"RUN": 1.0,
 }
 
-# SoundSource mirror (system-breakdown §2.3). E06-S4 (DECOY) is Batch D.
+# SoundSource mirror (system-breakdown §2.3).
 const SOURCE_FOOTFALL := "FOOTFALL"
 const SOURCE_DECOY := "DECOY"
 const SOURCE_TRAP := "TRAP"
 const SOURCE_AMBIENT := "AMBIENT"
+
+# ── E06-S4 (Batch D) DECOY constants ─────────────────────────────────────────
+const DECOY_RADIUS := 8.0        # m  interactables.md §2 "radius~8m"
+                                 #    [D11-A] CONSTANT — no SURFACE_FACTOR
+                                 #    modulation in Sprint 1. Revisit with the
+                                 #    E07 throwable entity (Sprint 2).
+const DECOY_INTENSITY := 1.0     # -  normalised loudness [0,1]. DECOY is a
+                                 #    full-loudness event (contrast: footfall
+                                 #    intensity is gait/surface-modulated). Do
+                                 #    NOT raise above 1.0 — that breaks the
+                                 #    [0,1] contract shared with footfall and
+                                 #    pollutes suspicion_from_distance.
 
 # Cold-white ring color (C-05: shape/size-coded, cool tone, not a danger hue).
 const RING_COLOR := Color("#9FB8C9")
@@ -97,6 +109,8 @@ func _bind_bus() -> void:
 		return
 	if not _bus.player_step_committed.is_connected(_on_player_step_committed):
 		_bus.player_step_committed.connect(_on_player_step_committed)
+	if not _bus.decoy_landed.is_connected(_on_decoy_landed):
+		_bus.decoy_landed.connect(_on_decoy_landed)
 
 
 # --- E06-S2: footfall -> SoundPayload. Radius is taken verbatim from E03's
@@ -114,6 +128,28 @@ func _on_player_step_committed(payload: Dictionary) -> void:
 	})
 
 
+# --- E06-S4: decoy -> SoundPayload. -----------------------------------------
+# DECOY is a SIGNAL-LEVEL sound source in Sprint 1: the physical throwable
+# entity (E07) is deferred to Sprint 2 (plan D2), so anything that can emit
+# EventBus.decoy_landed produces a real sound ring today.
+func _on_decoy_landed(pos: Vector3, surface: String, radius: float) -> void:
+	# [D11-A] `surface` is forwarded for foley / subtitle variant selection ONLY.
+	# It MUST NOT participate in the radius computation — see the reverse
+	# evidence in test_sound_propagation.gd::test_decoy_surface_is_foley_only.
+	#
+	# Edge (1): a non-positive radius (uninitialised sender, bad level data)
+	# falls back to the nominal radius. Emitting a 0m ring would be a silent dud
+	# — the player hears the throw but no guard can ever be in range.
+	var r: float = radius if radius > 0.0 else DECOY_RADIUS
+	emit({
+		"origin": pos,
+		"radius": r,
+		"intensity": DECOY_INTENSITY,
+		"source": SOURCE_DECOY,
+		"surface": surface,       # read-only passenger; never enters a formula
+	})
+
+
 # --- E06-S1: emit a sound event; notify guards in radius via the grid. ---
 # Returns the enriched SoundPayload so callers/tests can inspect it. Cost is
 # O(guards in radius) — one grid query + one bus broadcast + a ring request.
@@ -128,6 +164,12 @@ func emit(payload: Dictionary) -> Dictionary:
 		"intensity": intensity,
 		"source": source,
 	}
+	# [D11-A] Optional foley/subtitle passenger (E06-S4). enriched is rebuilt
+	# from a fixed key set above, so an un-forwarded `surface` would be silently
+	# dropped here and the parameter would become dead on arrival. It is copied
+	# verbatim and is never read by any numeric path in this class.
+	if payload.has("surface"):
+		enriched["surface"] = payload["surface"]
 	# E06-S1: grid query -> candidate guard ids, then precise in-radius filter
 	# (query_radius returns bounding-box candidates; ADR-002 leaves the exact
 	# distance test to the caller). Cost stays O(candidates in radius box).

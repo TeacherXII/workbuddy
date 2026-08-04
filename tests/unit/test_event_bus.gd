@@ -16,7 +16,12 @@ var _bus: EventBus
 
 
 func before_each() -> void:
-	_bus = EventBus.new()
+	# Test hygiene: EventBus is a Node created OUTSIDE the scene tree, so nothing
+	# reaps it — `_bus = null` alone leaks one orphan PER TEST (orphan count grew
+	# linearly with the test count in this file). autofree() hands it to GUT's
+	# per-test reaper. add_child_autofree() is not used because these tests are
+	# deliberately tree-free (see file header).
+	_bus = autofree(EventBus.new())
 	watch_signals(_bus)
 
 
@@ -57,7 +62,12 @@ func test_all_signals_can_connect_and_emit():
 	_bus.light_state_changed.emit(7, EventBus.LightState.EXTINGUISHED)
 	_bus.cover_state_changed.emit(Vector3i(1, 0, 2))
 	_bus.player_step_committed.emit({"to": Vector3.ZERO})
-	_bus.decoy_landed.emit(Vector3(0, 0, 1))
+	# [E06-S4, D11-A] decoy_landed is 3-arg (pos, surface, radius). A short
+	# emit() here would raise "Error calling from signal" at runtime WITHOUT
+	# failing any assert_signal_emitted — that is the N-8 false-green. The
+	# full-parameter assertion below plus test_decoy_landed_signature_contract
+	# are the two mechanisms that keep this honest.
+	_bus.decoy_landed.emit(Vector3(0, 0, 1), "STONE", 8.0)
 	_bus.sound_emitted.emit({"radius": 3.0})
 	_bus.vision_stimulus.emit(1, null, 0.8)
 	_bus.vision_looming.emit(1)
@@ -76,7 +86,15 @@ func test_all_signals_can_connect_and_emit():
 	assert_signal_emitted(_bus, "light_state_changed")
 	assert_signal_emitted(_bus, "cover_state_changed")
 	assert_signal_emitted(_bus, "player_step_committed")
-	assert_signal_emitted(_bus, "decoy_landed")
+	# ★ N-8 mechanism ②: assert_signal_emitted only proves "it fired"; a 1-arg
+	# emit against a 3-arg signal ALSO passes it (GUT's signal watcher is
+	# variadic and does not check arity — addons/gut/signal_watcher.gd:77-97).
+	# Assert the whole parameter tuple instead.
+	assert_signal_emitted_with_parameters(
+		_bus, "decoy_landed", [Vector3(0, 0, 1), "STONE", 8.0])
+	var decoy_params: Array = get_signal_parameters(_bus, "decoy_landed")
+	assert_eq(decoy_params.size(), 3,
+		"emitted arg tuple must carry all 3 params (N-8 guard)")
 	assert_signal_emitted(_bus, "sound_emitted")
 	assert_signal_emitted(_bus, "vision_stimulus")
 	assert_signal_emitted(_bus, "vision_looming")
@@ -91,6 +109,43 @@ func test_suspicion_changed_carries_tier_parameter():
 	_bus.suspicion_changed.emit(3, 70.0, EventBus.SusTier.ALERT)
 	assert_signal_emitted_with_parameters(_bus, "suspicion_changed",
 		[3, 70.0, EventBus.SusTier.ALERT])
+
+
+func test_decoy_landed_signature_contract() -> void:
+	# ★★ N-8 PRIMARY DEFENCE ★★  [E06-S4, D11-A / M-1]
+	# Contract test: asserts the DECLARED shape of the signal (arity + order +
+	# types) directly. It never emits, so it is immune to GUT's variadic
+	# signal_watcher (addons/gut/signal_watcher.gd:122 connects every signal to
+	# one variadic callback; :77-97 collects args WITHOUT checking arity — so a
+	# 1-arg emit against a 3-arg signal still passes assert_signal_emitted while
+	# the engine only push_error()s, which is not a test failure).
+	# If anyone changes decoy_landed's signature without updating this test,
+	# this test MUST go RED.
+	var found: Dictionary = {}
+	for sig in _bus.get_signal_list():
+		if sig["name"] == "decoy_landed":
+			found = sig
+			break
+	assert_false(found.is_empty(), "decoy_landed signal must exist on EventBus")
+	if found.is_empty():
+		return
+
+	var args: Array = found["args"]
+	# ① arity must be exactly 3 — this alone locks out the N-8 1-arg emit case.
+	assert_eq(args.size(), 3,
+		"decoy_landed arity must be 3 (pos, surface, radius); got %d" % args.size())
+	if args.size() != 3:
+		return
+	# ② parameter names (guards against the order being swapped).
+	assert_eq(args[0]["name"], "pos")
+	assert_eq(args[1]["name"], "surface")
+	assert_eq(args[2]["name"], "radius")
+	# ③ parameter types (M-1: surface is String; the doc-level `Surface` type
+	#    has no GDScript counterpart).
+	assert_eq(args[0]["type"], TYPE_VECTOR3, "pos must be Vector3")
+	assert_eq(args[1]["type"], TYPE_STRING,
+		"surface must be String (doc-level `Surface` has no GDScript counterpart)")
+	assert_eq(args[2]["type"], TYPE_FLOAT, "radius must be float (metres)")
 
 
 func test_light_state_changed_uses_lightstate_enum():

@@ -5,7 +5,7 @@ extends Node
 # design/gdd/system-breakdown.md §2. After this change the bus exposes the full
 # 13-signal / shared-type vocabulary from §2. See docs/sprint1-batchA-impl.md
 # §E01-S9 for the drift list.
-# decoy_landed param shape remains DEFERRED -> Batch D, E06-S4.
+# decoy_landed was closed in Batch D (E06-S4, D11-A) — see below.
 # interactable_triggered was closed in Batch C (D8) — see below.
 
 # --- Shared vocabulary enums (system-breakdown §2.3) ---
@@ -33,9 +33,18 @@ signal cover_state_changed(cell: Vector3i)
 
 # --- 2.2 Gameplay-layer events (L4 / L3) ---
 signal player_step_committed(payload: Dictionary)
-# NOTE: Sprint 0 shape retained (§2 wants DecoyPayload{pos,surface,radius});
-# realigned by E06-S4 in Batch D. Kept as-is to avoid touching Sprint 0 emitters.
-signal decoy_landed(pos: Vector3)
+## E06-S4 (Batch D). DecoyPayload per system-breakdown §2 L51.
+## `surface` is a String key into StepCommit.SURFACE_FACTOR /
+## FootfallVFX.FOOTFALL_SUBTITLE ("STONE"/"GRASS"/"METAL"/"MOSS"/"WOOD").
+## The doc-level type name `Surface` has NO GDScript counterpart — String is the
+## codebase-wide convention (step_commit.gd:57, footfall_vfx.gd:32).  [M-1]
+## `radius` is METRES; nominal value SoundPropagator.DECOY_RADIUS (8.0).
+## [D11-A] `surface` drives foley/subtitle variant ONLY — it does NOT modulate radius.
+## ⚠ NO DEFAULT PARAMETERS: GDScript does not apply signal default values on emit();
+##   a short emit() raises "Error calling from signal" at runtime, which GUT's
+##   variadic signal watcher will NOT surface as a test failure. See N-8.
+##   Contract shape is locked by test_event_bus.gd::test_decoy_landed_signature_contract.
+signal decoy_landed(pos: Vector3, surface: String, radius: float)
 signal sound_emitted(payload: Dictionary)
 signal vision_stimulus(guard_id: int, target: Node, visibility: float)
 signal vision_looming(guard_id: int)

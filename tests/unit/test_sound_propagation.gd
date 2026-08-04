@@ -26,8 +26,12 @@ var _captured: Dictionary = {}
 
 
 func before_each() -> void:
-	_sp = SoundPropagator.new()
-	_bus = EventBus.new()
+	# Node discipline: SoundPropagator / EventBus are Nodes deliberately kept OUT
+	# of the scene tree (every entry point under test is pure logic). They are
+	# released with autofree() so the orphan count does not regress as tests are
+	# added — same convention as test_patrol_ai.gd:23.
+	_sp = autofree(SoundPropagator.new())
+	_bus = autofree(EventBus.new())
 	_grid = SpatialHashGrid3D.new()
 	_sp.set_event_bus(_bus)
 	_sp.set_grid(_grid)
@@ -134,6 +138,95 @@ func test_ring_vfx_not_built_headless():
 	_sp.request_ring(Vector3.ZERO, 5.0, SoundPropagator.SOURCE_FOOTFALL)
 	assert_eq(_sp._rings.size(), 1, "ring accounting records the request headless")
 	# No rendering assertion needed: _can_render() is false without a tree.
+
+
+# =============================================================================
+# E06-S4 (Batch D) — DECOY as a signal-level sound source. The E07 physical
+# throwable entity is deferred to Sprint 2 (plan D2).
+# =============================================================================
+func test_decoy_sound_radius() -> void:
+	# H19. Name is pinned by the E06-S4 exit hook in sprint1-stories.md (N-14):
+	# do NOT rename, or the story's acceptance hook points at nothing.
+	_sp._bind_bus()
+	_bus.sound_emitted.connect(_capture)
+
+	var pos := Vector3(2, 0, -5)
+	_bus.decoy_landed.emit(pos, "STONE", SoundPropagator.DECOY_RADIUS)
+	assert_signal_emitted(_bus, "sound_emitted", "a decoy must produce a sound event")
+	assert_eq(_captured.get("source"), SoundPropagator.SOURCE_DECOY,
+		"source must be DECOY, not FOOTFALL")
+	assert_eq(_captured.get("radius"), 8.0,
+		"decoy radius must be DECOY_RADIUS (interactables.md §2 'radius~8m')")
+	assert_eq(_captured.get("origin"), pos, "origin must be the landing point")
+	assert_eq(_captured.get("intensity"), SoundPropagator.DECOY_INTENSITY,
+		"a decoy is a full-loudness event (intensity 1.0)")
+	# The [0,1] intensity contract is shared with footfall; breaking it would
+	# silently rescale suspicion_from_distance for every source.
+	assert_lte(SoundPropagator.DECOY_INTENSITY, 1.0, "intensity domain is [0,1]")
+
+	# Edge (1): a sender that passes an uninitialised / non-positive radius must
+	# fall back to DECOY_RADIUS, never emit a silent zero-radius ring.
+	_captured = {}
+	_bus.decoy_landed.emit(pos, "STONE", 0.0)
+	assert_eq(_captured.get("radius"), SoundPropagator.DECOY_RADIUS,
+		"radius <= 0 must fall back to DECOY_RADIUS, not emit a 0m dud")
+	_captured = {}
+	_bus.decoy_landed.emit(pos, "STONE", -3.0)
+	assert_eq(_captured.get("radius"), SoundPropagator.DECOY_RADIUS,
+		"a negative radius must fall back to DECOY_RADIUS")
+
+	# Edge (2): nobody in range is a legal outcome ("thrown, nobody heard it").
+	assert_eq((_captured.get("target_guard_ids", []) as Array).size(), 0,
+		"no guards registered -> empty notify list, no error")
+
+
+func test_decoy_surface_is_foley_only() -> void:
+	# H20 / [D11-A] evidence: `surface` is carried for foley + subtitle variant
+	# selection ONLY. It must reach the payload (so it is not a dead parameter)
+	# and it must NOT modulate the radius.
+	_sp._bind_bus()
+	_bus.sound_emitted.connect(_capture)
+
+	_bus.decoy_landed.emit(Vector3.ZERO, "STONE", SoundPropagator.DECOY_RADIUS)
+	var r_stone: float = float(_captured.get("radius", -1.0))
+	assert_eq(_captured.get("surface"), "STONE",
+		"surface must survive into the payload (foley/subtitle consumer)")
+
+	_bus.decoy_landed.emit(Vector3.ZERO, "MOSS", SoundPropagator.DECOY_RADIUS)
+	var r_moss: float = float(_captured.get("radius", -2.0))
+	assert_eq(_captured.get("surface"), "MOSS", "surface must be forwarded verbatim")
+
+	# ★ Reverse evidence for D11-A: MOSS is the quietest surface in
+	# StepCommit.SURFACE_FACTOR. If anyone wires SURFACE_FACTOR into the decoy
+	# radius, these two stop being equal and this assertion goes RED.
+	assert_eq(r_moss, r_stone,
+		"[D11-A] surface must NOT modulate decoy radius (MOSS == STONE == 8.0)")
+	assert_eq(r_stone, SoundPropagator.DECOY_RADIUS, "radius stays the constant")
+
+	# Edge (3): an unknown / empty surface must not crash and must not perturb
+	# any numeric path — a free robustness win from D11-A.
+	_bus.decoy_landed.emit(Vector3.ZERO, "", SoundPropagator.DECOY_RADIUS)
+	assert_eq(float(_captured.get("radius", -3.0)), r_stone,
+		"an empty surface must not change the radius")
+	_bus.decoy_landed.emit(Vector3.ZERO, "OBSIDIAN_UNKNOWN", SoundPropagator.DECOY_RADIUS)
+	assert_eq(float(_captured.get("radius", -4.0)), r_stone,
+		"an unknown surface must not change the radius (falls back in foley only)")
+
+
+func test_decoy_respects_ring_cap() -> void:
+	# H21 @ci:G-02. Companion to test_ring_vfx_capped_at_eight (Batch B, :120),
+	# which covers the FOOTFALL source (N-16). This one proves the NEW source
+	# does not get its own bypass around the FIFO.
+	_sp._bind_bus()
+	for i in range(12):
+		_bus.decoy_landed.emit(Vector3(float(i), 0, 0), "STONE",
+			SoundPropagator.DECOY_RADIUS)
+	assert_eq(_sp._rings.size(), SoundPropagator.RING_CAP,
+		"12 decoys must still cap at RING_CAP(8) — DECOY may not bypass the FIFO")
+	assert_false(_sp.is_over_ring_budget(), "G-02 budget must hold for DECOY too")
+	assert_eq(_sp._rings[0]["source"], SoundPropagator.SOURCE_DECOY,
+		"surviving rings are the decoy rings (FIFO kept the newest 8)")
+	assert_eq(_sp._rings[7]["seq"], 12, "newest decoy ring must be retained")
 
 
 func test_suspicion_from_sound_distance():
