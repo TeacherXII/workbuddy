@@ -45,7 +45,7 @@
 - **验收（G/W/T）**
   - Given `noise_radius = BASE(5.0)×surface_factor×gait_factor`；surface_factor 现为 STONE1.0/GRASS0.7/METAL1.2，Sprint 0 缺 MOSS 元数据。
   - When 提交一步且 surface 取地面元数据（asset-manifest §3.1），surface ∈ {STONE,GRASS,METAL,MOSS}。
-  - Then `noise_radius` 正确：SNEAK+MOSS 2.5 / WALK+GRASS 3.5 / RUN+METAL 12.0 等；payload 携带 surface 字段供 E06。
+  - Then `noise_radius` 正确：SNEAK+MOSS 1.25 / WALK+GRASS 3.5 / RUN+METAL 12.0 等；payload 携带 surface 字段供 E06。
 - **依赖**：E03-S4（commit payload）、asset-manifest §3.1（surface 元数据）
 - **T 恤**：S
 - **退出钩子**：`@test_noise_radius_all_surfaces`（`tests/unit/test_step_commit.gd` 扩充）

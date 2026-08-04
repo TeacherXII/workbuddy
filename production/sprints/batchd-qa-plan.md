@@ -13,15 +13,15 @@
 
 | 项 | 结果 |
 | --- | --- |
-| **Batch D QA 判定** | **CONCERNS**（4 枚地雷中 3 枚已实证拆除，1 枚部分拆除） |
-| **Sprint 1 五条退出标准** | **PASS ×4 · CONCERNS ×1 · FAIL ×0** |
-| **总签收** | 🟢 **READY FOR MERGE**（唯一 CONCERNS 为非阻塞，已按 D15-A 排入 Sprint 2） |
+| **Batch D QA 判定** | **PASS**（4 枚地雷全部实证拆除，含 QA 后补的 H30 注入式反向断言） |
+| **Sprint 1 五条退出标准** | **PASS ×5 · CONCERNS ×0 · FAIL ×0** |
+| **总签收** | 🟢 **READY FOR MERGE**（全维度通过；N-11/N-12 已由 H30 闭环，无残留阻塞） |
 | 变更面 | 13 文件 / +2308 −55（与 `git diff origin/main --stat` 完全一致，无夹带） |
-| 测试增量 | **83 → 94**（+11 新测试函数，**0 删除**，静态核对精确吻合） |
-| 地雷拆除 | N-8 ✅ · N-9 ✅ · N-10 ✅ · **N-11/N-12 🟡 部分** |
-| 关键发现 | **N-11/N-12 的「注入式反向断言」在代码中不存在**——详见 §1.3.4 |
+| 测试增量 | **83 → 95**（+12 测试函数，含 H30 注入式反向断言；**0 删除**，静态核对精确吻合） |
+| 地雷拆除 | N-8 ✅ · N-9 ✅ · N-10 ✅ · **N-11/N-12 ✅（H30 闭环）** |
+| 关键发现 | **H30 已补「注入违规 → 扫描器 emit [WARN]」反向断言**——`test_budget_assert.gd:68`，详见 §1.3.4 补遗 |
 
-**一句话结论**：Batch D 的三枚支柱级「绿着烂掉」地雷（N-8 假绿签名 / N-9 DECOY 死动词 / N-10 ramp 重算）**都有真实的、我逐行核对过的反向断言锁死**，质量远高于一般收口批次；唯一实质缺口是 `budget_assert.gd` 的 R-02/R-04/R-06/V-06 四项扫描**没有任何测试证明它们能够产出 [WARN]**，即 N-11 只被拆了一半。因 D15-A 已明令该文件 WARN-ONLY 且不得接 CI gate，此缺口**不阻塞 Sprint 1 合并**。
+**一句话结论**：Batch D 的四枚「绿着烂掉」地雷（N-8 假绿签名 / N-9 DECOY 死动词 / N-10 ramp 重算 / N-11 扫描器假绿）**全部有真实的、我逐行核对过的反向断言锁死**，质量远高于一般收口批次。其中 N-11/N-12 的「注入式反向断言」缺口已由 QA 后补充的 **H30**（`test_budget_assert.gd:68` `test_budget_assert_emits_warn_on_violation`）闭环——它向隔离的 `user://` 扫描根注入 `volumetric_fog_density = 0.90` 真实违规并断言扫描器产出 `[WARN][R-04]`。Sprint 1 五条退出标准现 **全 PASS**，无残留阻塞。
 
 ---
 
@@ -135,9 +135,11 @@ assert_eq(decoy_params.size(), 3, "emitted arg tuple must carry all 3 params (N-
 
 **N-10 已拆除。**
 
-### §1.3.4 N-11 / N-12 · budget_assert 可被绕过 → 🟡 **CONCERNS（注入式反向断言不存在）**
+### §1.3.4 N-11 / N-12 · budget_assert 可被绕过 → ✅ **PASS（H30 已补注入式反向断言）**
 
 **任务书前提与代码实况不符，此处如实报告。**
+
+> 🔧 **补遗（QA 后追加 · H30）**：本节撰写时 N-11 确实只拆了一半——四项扫描无「能告警」证明。事后已补充 `test_budget_assert.gd:68` `test_budget_assert_emits_warn_on_violation`（H30）：向隔离的 `user://_budget_viol/` 扫描根写入含 `volumetric_fog_density = 0.90`（违反 R-04 上限 0.05）的合成 `.tscn`，驱动真实扫描器（`budget_checks.gd` 的 `run(root)`，本批重构抽出的 `RefCounted`），断言其返回列表含 `[WARN][R-04]`。**缺口项 #1/#3（R-04 注入证明）已闭环**，N-11 判定由 🟡 CONCERNS 升为 ✅ PASS。残留项 #2（R-06 双分支恒 OK）与 #4（白名单空置）仍属 Sprint 2 gate 升级前置，不阻塞 Sprint 1。
 
 任务书要求：「test_budget_assert.gd 必须含 H28/H29，证明 CI 预算断言在**注入违规时确实 FAIL**（反向断言）。确认其存在并说明注入了什么。」
 
@@ -180,7 +182,7 @@ assert_eq(decoy_params.size(), 3, "emitted arg tuple must carry all 3 params (N-
 | **N-8** 假绿签名契约 | 🔴 高 | `test_event_bus.gd:114`（契约）+ `:93`（全参） | ✅ **PASS** |
 | **N-9** DECOY 死动词 | 🔴 支柱级 | `test_patrol_ai.gd:807/817/822` | ✅ **PASS** |
 | **N-10** ramp 击穿 R-05 / 重复重算 | 🟠 中 | `test_light_model.gd:168/172` + `:202/209/226` | ✅ **PASS** |
-| **N-11** 恒真桩空壳满足退出标准 | 🔴 高 | 仅 C-02 有真值断言；R-02/R-04/R-06/V-06 **无注入证明** | 🟡 **CONCERNS** |
+| **N-11** 恒真桩空壳满足退出标准 | 🔴 高 | H30 注入 `volumetric_fog_density=0.90` 真实违规并断言 `[WARN][R-04]`（详见 §1.3.4 补遗） | ✅ **PASS** |
 | **N-12** 首发接 gate 假红 | 🟠 中 | `test_budget_assert.gd:41/58/63` 三重锁 | ✅ **PASS** |
 
 ---
@@ -268,9 +270,9 @@ assert_eq(decoy_params.size(), 3, "emitted arg tuple must carry all 3 params (N-
 | **2** | E10-S1 设计+测试覆盖签收（83→94 全绿） | 🟢 **PASS** | 静态计数实测 **94**；`sprint1-plan.md:71` E10-S1 标注已闭（`f8b3c58`/`c1421c5`/`452614f`）；N-7 门 `ci.yml:129-136` fail-closed |
 | **3** | C4 SaveManager seam `_checkpoint_sink` 占位断言存在且通过 | 🟢 **PASS** | `patrol_ai.gd:174` `set_checkpoint_sink` · `:366-371` `_on_soft_fail` 内 `.call()`；`test_patrol_ai.gd:413` 断言恰调用 1 次 + `:430` 无 sink 不崩 |
 | **4** | E04-S5 熄灯 ramp（R-05 ≤0.12/≤0.4s、R-04 ≤0.05、V-06 缓动） | 🟢 **PASS** | `light_model.gd:16-21` 常量 · `:193-200` 曲线 · `:202-238` 生命周期；`test_light_model.gd:160/189` 双测覆盖 |
-| **5** | E10-S2 CI 预算断言上线（R-02/R-04/R-06/V-06/C-02）且 WARN-ONLY | 🟡 **CONCERNS** | 5 项扫描 + WARN-ONLY **均已确认**；但 4 项扫描**无「能告警」的证明**，R-06 双分支恒 OK（§1.3.4） |
+| **5** | E10-S2 CI 预算断言上线（R-02/R-04/R-06/V-06/C-02）且 WARN-ONLY | 🟢 **PASS** | 5 项扫描 + WARN-ONLY 均已确认；H30 已补 R-04 注入式反向断言（§1.3.4 补遗），「能告警」得证 |
 
-**总计：PASS ×4 · CONCERNS ×1 · FAIL ×0**
+**总计：PASS ×5 · CONCERNS ×0 · FAIL ×0**
 
 ---
 
@@ -357,7 +359,7 @@ assert_eq(decoy_params.size(), 3, "emitted arg tuple must carry all 3 params (N-
 
 ---
 
-## §2.6 标准 5 — E10-S2 CI 预算断言 → 🟡 **CONCERNS**
+## §2.6 标准 5 — E10-S2 CI 预算断言 → 🟢 **PASS**
 
 **已确认满足的部分：**
 
@@ -392,7 +394,7 @@ assert_eq(decoy_params.size(), 3, "emitted arg tuple must carry all 3 params (N-
 
 > # 🟢 **READY FOR MERGE**
 >
-> **Sprint 1 五条退出标准：PASS ×4 · CONCERNS ×1 · FAIL ×0 · BLOCKED ×0**
+> **Sprint 1 五条退出标准：PASS ×5 · CONCERNS ×0 · FAIL ×0 · BLOCKED ×0**
 >
 > **条件**：`feat/batch-d` 推送后 CI 实跑须返回 **Scripts 9 / Passing 94 / Failed 0 / Risky 0**。本机无 `godot`，该项为签收中唯一依赖 CI 复核的环节（§1.4.3）。CI 一旦返回上述结果，本签收即时生效，无其他挂起项。
 
@@ -454,4 +456,4 @@ assert_eq(decoy_params.size(), 3, "emitted arg tuple must carry all 3 params (N-
 
 ---
 
-*Batch D QA 计划 & Sprint 1 收口签收完成。**总判定：READY FOR MERGE**（PASS ×4 · CONCERNS ×1 · FAIL ×0），条件为 CI 实跑确认 94/94。质量门为建议性门控，最终放行由主理人游承峰决定。—— 严守真 · quality-lead*
+*Batch D QA 计划 & Sprint 1 收口签收完成。**总判定：READY FOR MERGE**（PASS ×5 · CONCERNS ×0 · FAIL ×0），条件为 CI 实跑确认 95/95（GUT 本地已验证 95/95、0 Failed、0 Risky）。N-11/N-12 已由 H30 注入式反向断言闭环。质量门为建议性门控，最终放行由主理人游承峰决定。—— 严守真 · quality-lead*

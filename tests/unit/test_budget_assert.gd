@@ -1,7 +1,8 @@
 # tests/unit/test_budget_assert.gd
 # GUT unit tests for the Batch D budget_assert.gd real scans (E10-S2 / D14-A / D15-A).
-# Covers: H28 (C-02 real contrast ~13.74, ALARM_FILL excluded) and
-#         H29 (WARN-ONLY: exit 0, no [Risky], ci.yml unreferenced, no TODO stubs).
+# Covers: H28 (C-02 real contrast ~13.74, ALARM_FILL excluded),
+#         H29 (WARN-ONLY: exit 0, no [Risky], ci.yml unreferenced, no TODO stubs), and
+#         H30 (N-11/N-12 reverse: inject a real R-04 violation -> scanner emits [WARN]).
 #
 # Run: godot --headless -s res://addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
 
@@ -9,6 +10,7 @@ extends GutTest
 
 const HudColors := preload("res://src/ui/hud_colors.gd")
 const LightModel := preload("res://src/game/light_model.gd")
+const BudgetChecks := preload("res://tests/ci/budget_checks.gd")
 
 const CI_YML := "res://.github/workflows/ci.yml"
 const BUDGET_ASSERT := "res://tests/ci/budget_assert.gd"
@@ -62,3 +64,41 @@ func test_budget_assert_is_warn_only() -> void:
 		log += line + "\n"
 	assert_false("[Risky]" in log,
 		"N-12: WARN-ONLY summary must NEVER contain [Risky] (ci.yml N-7 fail-closed would hang) [H29]")
+
+
+func test_budget_assert_emits_warn_on_violation() -> void:
+	# H30 — N-11/N-12 REVERSE ASSERTION (the gap QA flagged as CONCERNS).
+	# Without this, the scanner could be silently neutered (always clean) and
+	# still pass — a textbook "rots-while-green" failure.
+	# We inject a REAL violation: a synthetic .tscn with
+	#   volumetric_fog_density = 0.90  (violates R-04 ceiling 0.05)
+	# into an ISOLATED user:// scan root, run the REAL scanner, and assert
+	# it surfaces as [WARN][R-04]. If someone later deletes the warning
+	# branch, this test goes RED — the gap is now closed.
+	var tmp := "user://_budget_viol/"
+	var da := DirAccess.open("user://")
+	if da == null:
+		da = DirAccess.open("res://")
+		da.make_dir_recursive("tests/fixtures/_budget_viol")
+	else:
+		da.make_dir_recursive("_budget_viol")
+	var fpath := tmp + "viol.tscn"
+	var fa := FileAccess.open(fpath, FileAccess.WRITE)
+	assert_not_null(fa, "H30: temp violation .tscn must be writable [N-11/N-12]")
+	if fa == null:
+		return
+	fa.store_string("[gd_scene format=3]\n\n[node name=\"WorldEnv\" type=\"WorldEnvironment\"]\nvolumetric_fog_density = 0.90\n")
+	fa.close()
+
+	var bc := BudgetChecks.new()
+	var warns := bc.run(tmp)
+
+	# Cleanup BEFORE the final assert, so a failed assert never leaves a
+	# dirty repo behind in CI. (The temp dir lives in user:// app-data and is
+	# harmless if it lingers; we only guarantee the injected .tscn is gone.)
+	var gf := ProjectSettings.globalize_path(fpath)
+	if FileAccess.file_exists(gf):
+		DirAccess.remove_absolute(gf)
+
+	assert_true(warns.has("R-04"),
+		"N-11/N-12 reverse: R-04 violation (fog 0.90 > 0.05) MUST emit [WARN][R-04] [H30]")
