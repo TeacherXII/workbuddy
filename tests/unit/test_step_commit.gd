@@ -3,10 +3,12 @@
 # Covers: stealth-step-commit (landing point + noise radius budget) and
 # rtwp-time-model (focus -> 0.25, real-time cooldown per ADR-003).
 #
-# E08 (patrol-ai exposure grace) is NOT implemented in Sprint 0. The single
-# ExposureGuardStub below is the ONLY retained stub and stands in for
-# GuardBrain's exposure timer until Sprint 1. All other systems use the real
-# classes via preload (Phase 4 smoke stubs removed).
+# E08-S4 UPDATE (Sprint 1, Batch C): the ExposureGuardStub that used to live here
+# is GONE. It was the last remaining stub in the suite, standing in for
+# GuardBrain's exposure timer while E08 was unimplemented. src/game/patrol_ai.gd
+# now ships, so test_exposure_grace_1_2s below drives the REAL GuardBrain and the
+# 1.2s grace window is verified against production code instead of a lookalike.
+# Every system in this file now uses its real class via preload.
 #
 # Run: godot --headless -s res://addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit
 
@@ -14,38 +16,25 @@ extends GutTest
 
 const StepCommit = preload("res://src/game/step_commit.gd")
 const TimeController = preload("res://src/core/time_controller.gd")
-
-
-# ---- Single allowed stub: E08 GuardBrain exposure timer (Sprint 1) ----
-class ExposureGuardStub:
-	signal exposure_detected(guard_id, target)
-	var grace_rt: float = 1.2            # GRACE_RT real-time (patrol-ai §3)
-	var exposure_timer: float = 0.0
-	var alert: bool = false
-
-	func set_alert(v: bool) -> void:
-		alert = v
-		if not v:
-			exposure_timer = 0.0
-
-	func tick_real(delta: float, visibility: float) -> void:
-		if alert and visibility > 0.0:
-			exposure_timer += delta
-			if exposure_timer >= grace_rt:
-				exposure_detected.emit(1, null)
-		else:
-			exposure_timer = max(0.0, exposure_timer - delta)
+const GuardBrain = preload("res://src/game/patrol_ai.gd")
+const EventBus = preload("res://src/core/event_bus.gd")
 
 
 var _step: StepCommit
 var _time: TimeController
-var _exp: ExposureGuardStub
+var _bus: EventBus
+var _exp: GuardBrain
 var _captured_step: Dictionary = {}
 var _commit_count: int = 0
 
 
 func before_each() -> void:
 	_step = StepCommit.new()
+	# StepCommit is a Node and is deliberately kept OUT of the tree (the VFX path
+	# must stay gated), but it still has to be released or every test in this
+	# file leaks one node. Same ADDCHILD-AUTOFREE-01 discipline as _time below,
+	# just via autofree() instead of add_child_autofree().
+	autofree(_step)
 	_time = TimeController.new()
 	# In tree so enter_focus/exit_focus tweens are valid. autofree replaces the
 	# hand-rolled remove_child+free that used to live in after_each: GUT frees
@@ -54,8 +43,16 @@ func before_each() -> void:
 	watch_signals(_step)
 	watch_signals(_time)
 	_step.player_step_committed.connect(_capture_step)
-	_exp = ExposureGuardStub.new()
-	watch_signals(_exp)
+	# Real GuardBrain (E08). Kept OUT of the scene tree so its _process cannot
+	# inject wall-clock ticks: every decision below is driven explicitly.
+	# autofree keeps the orphan count flat (ADDCHILD-AUTOFREE-01 discipline).
+	_bus = EventBus.new()
+	autofree(_bus)
+	_exp = GuardBrain.new()
+	autofree(_exp)
+	_exp.guard_id = 1
+	_exp.set_event_bus(_bus)
+	watch_signals(_bus)
 	_captured_step = {}
 
 
@@ -65,6 +62,7 @@ func after_each() -> void:
 	# manual remove_child+free is gone so there is exactly ONE teardown path.
 	_step = null
 	_time = null
+	_bus = null
 	_exp = null
 
 
@@ -121,17 +119,60 @@ func test_commit_cooldown_uses_real_time_not_scaled():
 	assert_true(_step.can_commit(), "cooldown (0.12s real) must have elapsed")
 
 
-func test_exposure_grace_1_2s_triggers_soft_fail():
-	# E08-S4 + consistency-review C4: ALERT + visible for grace 1.2s real -> soft fail.
-	# NOTE: E08 (GuardBrain) is unimplemented in Sprint 0; ExposureGuardStub is
-	# the only retained stub (see header). Real E08 lands in Sprint 1.
-	_exp.set_alert(true)
-	_exp.tick_real(1.0, 1.0)  # still inside the grace window
-	assert_signal_not_emitted(_exp, "exposure_detected",
+func _expose_for(ticks: int, visibility: float) -> void:
+	for i in range(ticks):
+		_exp._pending_vision = visibility
+		_exp._decide(GuardBrain.TICK_DT)
+
+
+func test_exposure_grace_1_2s():
+	# H5 / E08-S4 + consistency-review C4: ALERT + visible for GRACE_RT(1.2s) of
+	# REAL time is a soft fail. This used to run against ExposureGuardStub; it
+	# now runs against the shipping GuardBrain.
+	_exp.suspicion = 100.0
+	_expose_for(1, 1.0)                       # CALM -> ALERT (single cross-level hop)
+	assert_eq(_exp.get_state(), EventBus.GuardState.ALERT,
+		"a saturated guard must reach ALERT before the grace clock can start")
+	assert_almost_eq(_exp.exposure_timer, 0.0, 0.0001,
+		"the grace clock only starts once the guard is ALREADY in ALERT")
+
+	# 1.0s of continuous exposure is still inside the window.
+	_expose_for(10, 1.0)
+	assert_almost_eq(_exp.exposure_timer, 1.0, 0.0001,
+		"the exposure clock must accumulate real time while ALERT + visible")
+	assert_signal_not_emitted(_bus, "exposure_detected",
 		"no exposure before the 1.2s grace elapses")
-	_exp.tick_real(0.3, 1.0)  # grace window (1.2s) exceeded
-	assert_signal_emitted(_exp, "exposure_detected",
+
+	# Two more ticks cross GRACE_RT.
+	_expose_for(2, 1.0)
+	assert_signal_emitted(_bus, "exposure_detected",
 		"soft-fail exposure must fire after 1.2s of continuous visibility")
+	assert_almost_eq(_exp.suspicion, 0.0, 0.0001,
+		"a soft fail must reset the guard's suspicion to 0")
+	assert_eq(_exp.get_state(), EventBus.GuardState.RETURN,
+		"a soft fail must force the FSM down the RETURN path")
+
+
+func test_exposure_grace_resets_when_los_breaks():
+	# E08-S4: breaking line of sight INSIDE the grace window is the player's
+	# escape hatch — the clock must RESET, not merely pause. This is the
+	# mechanical basis of pillar 1 ("you get 1.2s to fix it").
+	_exp.suspicion = 100.0
+	_expose_for(1, 1.0)
+	_expose_for(10, 1.0)
+	assert_gt(_exp.exposure_timer, 0.9, "the grace clock is running")
+
+	_expose_for(1, 0.0)                       # duck behind cover
+	assert_almost_eq(_exp.exposure_timer, 0.0, 0.0001,
+		"breaking LOS inside the grace window must RESET the exposure clock")
+	assert_signal_not_emitted(_bus, "exposure_detected",
+		"a player who breaks LOS in time must never trip the soft fail")
+
+	# ...and the clock genuinely restarts from zero: 11 more visible ticks (1.1s)
+	# must still be under the wire.
+	_expose_for(11, 1.0)
+	assert_signal_not_emitted(_bus, "exposure_detected",
+		"after a reset the player gets the full 1.2s again, not the remainder")
 
 
 func test_non_idle_rejects_commit():

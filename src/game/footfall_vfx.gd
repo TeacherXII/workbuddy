@@ -25,7 +25,24 @@ const FOOTFALL_SUBTITLE := {
 	"WOOD":  "足音·木",
 }
 
+# E09-S3: ghost-trail fade duration, normal vs "focus readable".
+const GHOST_FADE_SEC := 0.35
+const GHOST_FADE_SEC_BOOST := 0.70
+
 signal footfall_foley(surface: String, subtitle: String)
+
+var _readability_boost := false
+
+
+# E09-S3: readability orchestration (duck-typed; HudSlice only calls this and
+# never touches our material). Boost lengthens the ghost fade so the trail stays
+# legible while the player is reading the board in FOCUS.
+func set_readability_boost(on: bool) -> void:
+	_readability_boost = on
+
+
+func ghost_fade_seconds() -> float:
+	return GHOST_FADE_SEC_BOOST if _readability_boost else GHOST_FADE_SEC
 
 
 func spawn_landing_glow(pos: Vector3) -> MeshInstance3D:

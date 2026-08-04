@@ -36,6 +36,9 @@ const SOURCE_AMBIENT := "AMBIENT"
 
 # Cold-white ring color (C-05: shape/size-coded, cool tone, not a danger hue).
 const RING_COLOR := Color("#9FB8C9")
+# E09-S3: normal vs "focus readable" ring alpha.
+const RING_ALPHA_BASE := 0.25
+const RING_ALPHA_BOOST := 0.45
 
 var _bus: EventBus = null
 var _grid: SpatialHashGrid3D = null
@@ -47,6 +50,7 @@ var _grid: SpatialHashGrid3D = null
 var _guard_positions: Dictionary = {}
 var _rings: Array = []          # active ring records (FIFO-capped at RING_CAP)
 var _ring_seq := 0
+var _readability_boost := false
 
 
 func _ready() -> void:
@@ -61,6 +65,16 @@ func set_event_bus(bus: EventBus) -> void:
 
 func set_grid(grid: SpatialHashGrid3D) -> void:
 	_grid = grid
+
+
+# E09-S3: readability orchestration (duck-typed; HudSlice only calls this and
+# never touches our material). Boost lifts the ring one alpha step.
+func set_readability_boost(on: bool) -> void:
+	_readability_boost = on
+
+
+func ring_alpha() -> float:
+	return RING_ALPHA_BOOST if _readability_boost else RING_ALPHA_BASE
 
 
 # --- Guard position registry (precise in-radius test; see _guard_positions). ---
@@ -168,9 +182,9 @@ func _spawn_ring_visual(rec: Dictionary) -> void:
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.emissive_enabled = true
 	mat.emissive_color = RING_COLOR
-	mat.emissive_intensity = 0.25
+	mat.emissive_intensity = ring_alpha()
 	var col := RING_COLOR
-	col.a = 0.25
+	col.a = ring_alpha()
 	mat.albedo_color = col
 	ring.material_override = mat
 	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
