@@ -31,6 +31,15 @@ const GuardBrain = preload("res://src/game/patrol_ai.gd")
 const EventBus = preload("res://src/core/event_bus.gd")
 const SoundPropagator = preload("res://src/game/sound_propagation.gd")
 const SpatialHashGrid3D = preload("res://src/core/spatial_hash_grid.gd")
+# Sprint 2 · Batch A: script-only preload for the D9 seam's REVERSE arity
+#   assertion (see test_soft_fail_invokes_checkpoint_sink_once). The script is
+#   never instantiated here — L3 stays decoupled from the L2 service, we only
+#   read its method list. No autoload, no file IO, no scene tree.
+const SaveManagerScript = preload("res://src/core/save_manager.gd")
+
+# Sentinel for the arity probe below. A parameter still holding this value was
+# NOT passed by the call site.
+const ARG_UNSET := "__arg_unset__"
 
 
 var _bus: EventBus
@@ -46,6 +55,10 @@ var _dirty_events: Array = []
 var _sink_calls: int = 0
 var _astar_calls: int = 0
 var _astar_args: Array = []
+# D9 seam arity probe (Sprint 2 · Batch A). Reset inside the test that uses it
+# so before_each() keeps its Sprint-1 shape.
+var _probe_calls: int = 0
+var _probe_actual_args: int = -1
 
 
 func before_each() -> void:
@@ -96,6 +109,29 @@ func _on_dirty(guard_id: int) -> void:
 
 func _count_sink() -> void:
 	_sink_calls += 1
+
+
+## Arity probe used as a checkpoint sink. Every parameter is optional, so the
+## number of NON-sentinel parameters is exactly how many arguments the call site
+## actually passed. Mirror of test_save_manager.gd::_probe_sink — keep both in
+## sync; they are the two halves of the same contract.
+func _probe_sink(a0: Variant = ARG_UNSET, a1: Variant = ARG_UNSET,
+		a2: Variant = ARG_UNSET) -> void:
+	_probe_calls += 1
+	_probe_actual_args = 0
+	for a in [a0, a1, a2]:
+		if not (typeof(a) == TYPE_STRING and str(a) == ARG_UNSET):
+			_probe_actual_args += 1
+
+
+## Declared parameter count of a method, read off the SCRIPT (no instance
+## required, so this cannot be fooled by a bound Callable).
+func _declared_arg_count(script: Script, method: String) -> int:
+	for m in script.get_script_method_list():
+		if str(m["name"]) == method:
+			var args: Array = m["args"]
+			return args.size()
+	return -1
 
 
 func _fake_path(from: Vector3, to: Vector3) -> PackedVector3Array:
@@ -425,6 +461,43 @@ func test_soft_fail_invokes_checkpoint_sink_once() -> void:
 	assert_eq(_brain.last_known, Vector3.ZERO, "soft fail must clear last_known")
 	assert_eq(_brain.get_state(), EventBus.GuardState.RETURN,
 		"soft fail must force the FSM to RETURN")
+
+	# ── REVERSE ARITY ASSERTION (Sprint 2 · Batch A, FLAG-A mitigation ②) ─────
+	# PAIRED with tests/unit/test_save_manager.gd::test_checkpoint_sink_arity_contract.
+	#   That test locks the SaveManager side of the D9 seam; this one locks the
+	#   GuardBrain (call-site) side. batchd-R7 / N-8: the two must move in the
+	#   SAME batch — a one-sided arity change is exactly the drift they ban.
+	# What is asserted: the number of arguments _on_soft_fail actually passes
+	#   through `_checkpoint_sink.call()` equals the DECLARED arity of
+	#   SaveManager.restore_checkpoint. Both are expected to be 0 (FLAG-A(a)).
+	_probe_calls = 0
+	_probe_actual_args = -1
+
+	var declared: int = _declared_arg_count(SaveManagerScript, "restore_checkpoint")
+	assert_eq(declared, 0,
+		"FLAG-A(a): SaveManager.restore_checkpoint must stay ZERO-ARG (got %d)" % declared)
+
+	# A second, tree-free brain so the assertions above keep their exact counts.
+	var probe_bus := EventBus.new()
+	autofree(probe_bus)
+	var probe_brain := GuardBrain.new()
+	autofree(probe_brain)
+	probe_brain.guard_id = 2
+	probe_brain.set_event_bus(probe_bus)
+	probe_brain.set_checkpoint_sink(_probe_sink)
+	probe_brain._set_fsm(EventBus.GuardState.ALERT)
+	probe_brain.suspicion = 80.0
+	probe_brain.exposure_timer = GuardBrain.GRACE_RT - GuardBrain.TICK_DT
+	probe_brain._pending_target = null
+	probe_brain._pending_vision = 1.0
+	probe_brain._decide(GuardBrain.TICK_DT)
+
+	assert_eq(_probe_calls, 1,
+		"the D9 seam must invoke the injected sink exactly once (probe side)")
+	assert_eq(_probe_actual_args, declared,
+		("args passed at patrol_ai.gd `_checkpoint_sink.call()` (%d) must equal " +
+		"SaveManager.restore_checkpoint's declared arity (%d)")
+			% [_probe_actual_args, declared])
 
 
 func test_soft_fail_without_sink_does_not_crash() -> void:

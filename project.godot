@@ -8,6 +8,15 @@ config/name="ASHEN STEP Sprint0"
 run/main_scene="res://src/main/sprint0.tscn"
 config/features=PackedStringArray("4.4")
 
+[autoload]
+
+; Sprint 2 · Batch A (E11 / SAV-S3). The L2 persistence service must be a global
+; singleton so the D9 seam injection in src/game/patrol_ai.gd can be the single
+; locked line `set_checkpoint_sink(SaveManager.restore_checkpoint)`.
+; NOTE: src/core/save_manager.gd deliberately has NO `class_name` — Godot 4
+; rejects a global class that shadows an autoload of the same name.
+SaveManager="*res://src/core/save_manager.gd"
+
 [renderers]
 
 renderer/1="ForwardPlus"

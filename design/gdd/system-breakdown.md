@@ -48,6 +48,10 @@
 | `checkpoint_restored` | SaveManager（L2） | `checkpoint_id:String` | **【D16 补录】** 软失败恢复完成 → ⑥ 世界重置（可疑度清零、守卫回 `RETURN`）+ ⑧ 软重开 UI（0.6s 黑场 + 字幕）。唯一被玩法层（⑥）消费的 L2 存档事件 |
 
 > **D16 裁决（Sprint 2）**：上表三个 SaveManager 事件参数以 `systems/save-system.md` §4 为权威 schema（`slot_id`/`success`/`checkpoint_id`），与 `consistency-review.md` §5.1 登记一致。三者均为 **L2 持久化/生命周期事件**，与 §2.2 玩法信号分属不同层，禁止混用。
+>
+> **✅ E01-S9 收口留痕（Sprint 2 · Batch A / SAV-S2 · FLAG-I RESOLVED）**：上表三个事件已于本批在 **`src/core/event_bus.gd` 正式声明**，参数名与类型与本表逐字一致：
+> `save_completed(slot_id: int, success: bool)` · `load_completed(slot_id: int, success: bool)` · `checkpoint_restored(checkpoint_id: String)`。
+> 声明位置在 event_bus.gd 的「2.1 Upstream / infrastructure events」块内、紧随 `cover_state_changed`，行序与本表一致；唯一生产发出方 = `src/core/save_manager.gd`（L2）。**事件词汇总量 13 → 16**，本轮闭合后事件总线回到冻结态。后续任何新增事件仍须重开 E01-S9 一轮，并**同批**改三处：① `src/core/event_bus.gd` 声明 ② 本表登记 ③ `@ci:event-vocab-zero-drift` lint 通过。
 
 ### 2.2 玩法层发出的事件（L4/L3）
 | 事件 | 发出方 | 参数 | 消费方 |
@@ -66,6 +70,7 @@
 > **D16 裁决（Sprint 2）**：`guard_spawned` 正式入表，**生命周期事件（只读广播），不携带 stealth 语义**——⑧ 仅用它缓存变体剪影（姿态/形状，非颜色），不得据此改可疑度/FSM。
 > **激活时点**：其参数类型 `GuardVariant` 由 E08 守卫变体提供，而 E08 已滑 Sprint 3（见 `reviews/sprint2-design-scope.md` §7）。故本事件 **Sprint 2 为「已登记 / 未发出」保留态**，Sprint 3 随 E08 落地才实际广播。Sprint 2 期间 ⑥ 不发、⑧ 不订阅。
 > **优先替代方案仍有效**：若 ⑧ 可从既有 `guard_fsm_changed` 快照读 `variant`，则优先走快照，本事件保持休眠以避免词汇膨胀（`consistency-review.md` §5.2）。
+> **Sprint 2 · Batch A 复核（SAV-S2 Note）**：本批已确认 `src/core/event_bus.gd` **未声明** `guard_spawned`，符合「已登记 / 未发出」保留态；`event_bus.gd` 内已就地留注释锁住该口径，防止后续顺手补声明。
 
 ### 2.3 共享数据类型（跨 GDD 一致）
 | 类型 | 定义 |

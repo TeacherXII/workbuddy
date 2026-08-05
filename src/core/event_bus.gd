@@ -7,6 +7,12 @@ extends Node
 # §E01-S9 for the drift list.
 # decoy_landed was closed in Batch D (E06-S4, D11-A) — see below.
 # interactable_triggered was closed in Batch C (D8) — see below.
+#
+# [Sprint 2, Batch A — SAV-S2 / FLAG-I RESOLVED] E01-S9 was re-opened for ONE
+# round to land the three SaveManager persistence events registered by D16 in
+# §2.1 (save_completed / load_completed / checkpoint_restored). The vocabulary is
+# now 16 signals and the bus returns to its frozen state. `guard_spawned` (§2.2)
+# stays UNDECLARED until Sprint 3 — it rides on the slipped E08 variant work.
 
 # --- Shared vocabulary enums (system-breakdown §2.3) ---
 # LightState: a light is LIT or EXTINGUISHED (cover-shadow §4).
@@ -30,8 +36,24 @@ signal time_scale_changed(old: float, new: float, mode: String)
 signal guard_transform_dirty(guard_id: int)
 signal light_state_changed(light_id: int, state: LightState)
 signal cover_state_changed(cell: Vector3i)
+# [E01-S9 re-opened & closed in Sprint 2 Batch A / SAV-S2, FLAG-I RESOLVED]
+# The three SaveManager (L2) persistence events. Registered in
+# system-breakdown.md §2.1 by D16; DECLARED here so the vocabulary is
+# zero-drift across ① event_bus.gd ② §2.1 ③ the @ci:event-vocab-zero-drift lint.
+# Parameter names + types are byte-identical to §2.1 — do not "improve" them.
+# ⚠ These are LIFECYCLE/persistence events, NOT stealth stimuli: ④/⑤/⑥ must not
+#   consume save_completed / load_completed. `checkpoint_restored` is the ONLY
+#   one a gameplay layer (⑥) subscribes to (world reset after a soft fail).
+# ⚠ NO DEFAULT PARAMETERS — same N-8 rule as decoy_landed above.
+# Sole production emitter: SaveManager (src/core/save_manager.gd).
+signal save_completed(slot_id: int, success: bool)
+signal load_completed(slot_id: int, success: bool)
+signal checkpoint_restored(checkpoint_id: String)
 
 # --- 2.2 Gameplay-layer events (L4 / L3) ---
+# NOTE: `guard_spawned` is registered in §2.2 but is a Sprint 3 item (it rides on
+# E08 guard variants / GuardVariant, which slipped). It is deliberately NOT
+# declared here — sprint2-stories.md §2 SAV-S2: "本 Sprint 不声明，不得顺手加入".
 signal player_step_committed(payload: Dictionary)
 ## E06-S4 (Batch D). DecoyPayload per system-breakdown §2 L51.
 ## `surface` is a String key into StepCommit.SURFACE_FACTOR /
