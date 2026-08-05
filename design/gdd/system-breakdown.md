@@ -43,6 +43,11 @@
 | `guard_transform_dirty` | ⑥ Patrol AI（经 L2 节流） | `guard_id:int` | 守卫 transform 变化超阈值，触发视野重算 |
 | `light_state_changed` | ⑤ Cover/Shadow | `light_id:int, state:LightState{LIT,EXTINGUISHED}` | 光源开关 → 受影响 cell 重算光影成员 |
 | `cover_state_changed` | ⑤ Cover/Shadow | `cell:Vector3i` | 掩体/阴影网格 cell 变更 |
+| `save_completed` | SaveManager（L2） | `slot_id:int, success:bool` | **【D16 补录】** 异步写盘完成 → ⑧ 吐司/错误提示。**L2 持久化事件，非玩法信号**，不得被 ④/⑤/⑥ 作为 stealth 刺激消费 |
+| `load_completed` | SaveManager（L2） | `slot_id:int, success:bool` | **【D16 补录】** 读档完成 → ⑧ 0.4s 淡入 + 应用 `A11ySettings` 全部开关到运行时。同上，非玩法信号 |
+| `checkpoint_restored` | SaveManager（L2） | `checkpoint_id:String` | **【D16 补录】** 软失败恢复完成 → ⑥ 世界重置（可疑度清零、守卫回 `RETURN`）+ ⑧ 软重开 UI（0.6s 黑场 + 字幕）。唯一被玩法层（⑥）消费的 L2 存档事件 |
+
+> **D16 裁决（Sprint 2）**：上表三个 SaveManager 事件参数以 `systems/save-system.md` §4 为权威 schema（`slot_id`/`success`/`checkpoint_id`），与 `consistency-review.md` §5.1 登记一致。三者均为 **L2 持久化/生命周期事件**，与 §2.2 玩法信号分属不同层，禁止混用。
 
 ### 2.2 玩法层发出的事件（L4/L3）
 | 事件 | 发出方 | 参数 | 消费方 |
@@ -56,6 +61,11 @@
 | `guard_fsm_changed` | ⑥ | `guard_id:int, old:GuardState, new:GuardState` | ⑧ |
 | `exposure_detected` | ⑥ | `guard_id:int, target:Node` | ⑧ + 失败流（软重开） |
 | `interactable_triggered` | ⑦ | `obj_id:int, type:InteractableType, payload` | ④ / ⑤ / ⑥ |
+| `guard_spawned` | ⑥ Patrol AI | `guard_id:int, variant:GuardVariant` | ⑧（变体剪影缓存） |
+
+> **D16 裁决（Sprint 2）**：`guard_spawned` 正式入表，**生命周期事件（只读广播），不携带 stealth 语义**——⑧ 仅用它缓存变体剪影（姿态/形状，非颜色），不得据此改可疑度/FSM。
+> **激活时点**：其参数类型 `GuardVariant` 由 E08 守卫变体提供，而 E08 已滑 Sprint 3（见 `reviews/sprint2-design-scope.md` §7）。故本事件 **Sprint 2 为「已登记 / 未发出」保留态**，Sprint 3 随 E08 落地才实际广播。Sprint 2 期间 ⑥ 不发、⑧ 不订阅。
+> **优先替代方案仍有效**：若 ⑧ 可从既有 `guard_fsm_changed` 快照读 `variant`，则优先走快照，本事件保持休眠以避免词汇膨胀（`consistency-review.md` §5.2）。
 
 ### 2.3 共享数据类型（跨 GDD 一致）
 | 类型 | 定义 |
@@ -67,6 +77,7 @@
 | `GuardState` | `CALM \| SUSPICIOUS \| ALERT \| SEARCH \| RETURN` |
 | `SusTier` | `CALM \| SUSPICIOUS \| ALERT \| SEARCH`（CALM = 可疑度 < 25；与 E08-S2 阈值 25/60/10 对齐；SEARCH 由 E08 FSM 在丢失目标后进入，非连续阈值带成员） |
 | `TimeMode` | `FLOWING \| FOCUS \| PAUSED` |
+| `GuardVariant` | `STANDARD \| HOUND \| NIGHTEYE`（**【D16 补录】** 因 `guard_spawned` 引用而登记。STANDARD=Sprint 1 基线守卫；HOUND=循声猎犬、NIGHTEYE=暗视哨兵，二者为 **⑥ 的参数/权重覆盖维度，非新 FSM 状态、非新系统**。随 E08 于 **Sprint 3** 落地；Sprint 2 期间仅 `STANDARD` 有效） |
 | `LightLevel` | `float[0..1]`，由 ⑤ `get_light_level(pos)` 提供 |
 
 ---
