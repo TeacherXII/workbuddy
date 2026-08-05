@@ -105,12 +105,19 @@ func test_set_aim_preview_shows_and_matches_projection():
 	var cam := Camera3D.new()
 	cam.current = true
 	cam.position = Vector3(0, 12, -12)
-	cam.look_at(Vector3.ZERO, Vector3.UP)
 	# autofree: a leaked `current` camera would stay in the viewport for every
 	# later test in this script and silently break the sibling test that asserts
 	# NO camera is available (it only passes today because it happens to be
 	# declared earlier). Freeing per test removes that order dependency.
+	#
+	# ★ Sprint 3 assertion audit (C-class). add_child MUST come BEFORE look_at:
+	# Node3D.look_at() operates on the global transform and hard-errors with
+	#   "Node not inside tree. Use look_at_from_position() instead."
+	# when the node is still detached. The call was previously made one line
+	# earlier and was a silent NO-OP, so this test has never actually exercised
+	# an angled camera — it passed with the default identity orientation.
 	add_child_autofree(cam)
+	cam.look_at(Vector3.ZERO, Vector3.UP)
 
 	var world_pos := Vector3(0, 0, 3)
 	_hud.set_aim_preview(world_pos)
@@ -125,6 +132,19 @@ func test_set_aim_preview_shows_and_matches_projection():
 		var delta := _hud._preview.position.distance_to(expected)
 		assert_true(delta < 0.001,
 			"preview position must match camera projection of aim point (delta=%f)" % delta)
+
+	# ★ Sprint 3 assertion audit (C-class mitigation). The comparison above
+	# RE-IMPLEMENTS hud_slice.gd:741-742 (both sides call cam.unproject_position
+	# and subtract the same half-size), so it is a mirror: it can catch an
+	# offset/arithmetic drift, but it reports delta=0.000000 no matter how the
+	# camera is oriented — which is exactly why the look_at no-op above went
+	# unnoticed. This check is independent of the projection formula: a
+	# different aim point must MOVE the preview, so a frozen or hard-coded
+	# preview position can no longer pass.
+	var first_pos := _hud._preview.position
+	_hud.set_aim_preview(world_pos + Vector3(6, 0, 0))
+	assert_ne(_hud._preview.position, first_pos,
+		"the preview must track the aim point, not sit at a fixed screen position")
 
 
 # =============================================================================
