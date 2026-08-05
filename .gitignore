@@ -24,3 +24,7 @@ tools/
 # ===== Python / misc =====
 __pycache__/
 *.pyc
+
+# ===== CI artifact temp (downloaded gut_output.txt zip; not game content) =====
+.tmp_gut/
+.tmp_gut.zip

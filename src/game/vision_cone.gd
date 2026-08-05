@@ -47,6 +47,11 @@ var _light: LightModel = null
 var _query: SpatialQueryWrapper = null
 var _bus: EventBus = null
 var _readability_boost := false
+# E07-S4: optional smoke registry (a SmokeField). Deliberately typed RefCounted
+# and called duck-typed: SmokeField already reads VIS_MULT_SMOKE off this class,
+# so naming its type here would be a cyclic class_name reference. Null by
+# default -> the cone behaves exactly as it did in Sprint 1.
+var _smoke: RefCounted = null
 
 signal vision_stimulus(guard_id: int, target: Node, visibility: float)
 signal vision_looming(guard_id: int)
@@ -70,6 +75,22 @@ func set_event_bus(bus: EventBus) -> void:
 	_bus = bus
 
 
+# E07-S4: inject the smoke registry (duck-typed, same "orchestrate, don't
+# repaint" contract as set_readability_boost). Passing null detaches it.
+func set_smoke_field(field: RefCounted) -> void:
+	_smoke = field
+
+
+# The smoke multiplier at a world point: 1.0 (neutral) when no field is
+# attached or the point is outside every live puff. Headless-safe.
+func smoke_multiplier_at(target: Vector3) -> float:
+	if _smoke == null:
+		return 1.0
+	if not _smoke.has_method("smoke_factor_at"):
+		return 1.0
+	return clampf(float(_smoke.smoke_factor_at(target)), 0.0, 1.0)
+
+
 func set_observer(pos: Vector3, forward: Vector3) -> void:
 	observer_pos = pos
 	observer_forward = forward
@@ -91,6 +112,14 @@ func cone_alpha_floor() -> float:
 # above it are untouched, so a target outside the cone or behind a wall stays 0,
 # and cover/smoke lower visibility without ever making a seen target invisible
 # (R-03).
+#
+# E07-S4 extends this with the thrown-smoke term:
+#     vis = base_vis x cover_factor x smoke_factor
+# `visibility_multiplier` stays the caller's term (cover, or a hand-passed smoke
+# value from the Sprint 1 tests); the field term is looked up here so ANY caller
+# -- the 10Hz tick, AI, tests -- gets the puff for free. Both terms are clamped
+# to [0,1] and the product is clamped again, so smoke can only ever LOWER
+# visibility and never grants invisibility (R-03).
 func compute_visibility(target: Vector3, visibility_multiplier := 1.0) -> float:
 	var to_t := target - observer_pos
 	var dist := to_t.length()
@@ -112,7 +141,8 @@ func compute_visibility(target: Vector3, visibility_multiplier := 1.0) -> float:
 	if _light != null:
 		sens = _light.light_sensitivity(lvl)
 	var m := clampf(visibility_multiplier, 0.0, 1.0)
-	return clampf(sens * m, 0.0, 1.0)
+	var smoke := smoke_multiplier_at(target)
+	return clampf(sens * m * smoke, 0.0, 1.0)
 
 
 # --- E05-S5: is the target inside the 8deg rim warning band (range + angle)? ---
