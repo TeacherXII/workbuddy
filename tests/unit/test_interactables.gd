@@ -127,6 +127,13 @@ func test_decoy_spawn_emits_decoy_landed_and_decrements_charges() -> void:
 	# chain the story specifies: throw -> decoy_landed -> E06 sound ring.
 	var sp: SoundPropagatorScript = autofree(SoundPropagatorScript.new())
 	sp.set_event_bus(_bus)
+	# set_event_bus() only STORES the bus; the decoy_landed subscription lives in
+	# _bind_bus(), which the engine reaches via _ready(). This propagator is kept
+	# out of the scene tree (headless discipline, see the file header), so _ready()
+	# never runs and the bind must be explicit -- exactly as the E06 suite does in
+	# test_sound_propagation.gd::test_decoy_sound_radius. In the shipped game the
+	# bind is automatic: sprint0_bootstrap.gd add_child()s the propagator.
+	sp._bind_bus()
 
 	var decoy := _reg.spawn(T_DECOY, Vector3.ZERO) as DecoyScript
 	assert_not_null(decoy, "E07-S1: the registry must be able to spawn a DECOY")
