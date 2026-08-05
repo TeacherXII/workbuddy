@@ -111,6 +111,49 @@ func test_focus_exit_restores_flowing():
 	assert_eq(_time.mode, "FLOWING", "mode must be FLOWING after release")
 
 
+# --- E09-S5b (Sprint 2 · Batch C) --------------------------------------------
+# The accessibility slider and the clock are two different objects; this test
+# closes the seam between them. The MODEL's own bounds are asserted in
+# test_a11y_settings.gd — what is proven HERE is the half no model test can see:
+# that enter_focus() ramps to the player's number instead of the constant, and
+# that changing it mid-focus is still a RAMP rather than a hard cut (V-06).
+func test_focus_honours_user_time_scale() -> void:
+	assert_almost_eq(_time.user_scale, TimeController.FOCUS_SCALE, 0.0001,
+		"E09-S5b: an un-configured clock must behave exactly as Sprint 0 (T-02 = 0.25)")
+
+	# T-01 clamp, BOTH ends. set_user_scale returns what it actually stored, so
+	# a settings UI can echo the clamp back instead of showing a value the clock
+	# silently refused.
+	assert_almost_eq(_time.set_user_scale(5.0), TimeController.USER_MAX, 0.0001,
+		"T-01: an over-range slider value must clamp to USER_MAX, never pass through")
+	assert_almost_eq(_time.set_user_scale(-1.0), TimeController.USER_MIN, 0.0001,
+		"T-01: an under-range value must clamp to USER_MIN (the physics floor)")
+
+	# The chosen depth is what FOCUS actually ramps to.
+	_time.set_user_scale(0.5)
+	_time.enter_focus()
+	assert_eq(_time.mode, "FOCUS", "the slider must not disturb the state machine")
+	assert_almost_eq(_time.get_ramp_target(), 0.5, 0.0001,
+		"E09-S5b: FOCUS must ramp to the PLAYER's scale, not to the FOCUS_SCALE constant")
+
+	# V-06: a mid-focus drag RE-RAMPS. RAMP > 0 is the non-hard-cut guarantee.
+	assert_gt(TimeController.RAMP, 0.0, "V-06: the focus transition must be eased, never cut")
+	_time.set_user_scale(0.8)
+	assert_almost_eq(_time.get_ramp_target(), 0.8, 0.0001,
+		"V-06: a mid-focus change must re-ramp to the new target")
+
+	# event-vocab-zero-drift: the retarget re-announces on the EXISTING signal.
+	# Exactly two emissions so far — enter_focus and the mid-focus retarget; the
+	# three FLOWING-mode slider writes above must stay silent, because a HUD
+	# should not repaint for a setting that changes nothing on screen yet.
+	assert_signal_emit_count(_time, "time_scale_changed", 2,
+		"E09-S5b: only enter_focus + the mid-focus retarget may announce")
+
+	_time.exit_focus()
+	assert_almost_eq(_time.get_ramp_target(), TimeController.FLOWING_SCALE, 0.0001,
+		"leaving FOCUS must ramp back to 1.0 regardless of where the slider sits")
+
+
 func test_commit_cooldown_uses_real_time_not_scaled():
 	# E03-S1 + E02-S3 + ADR-003 risk4: cooldown uses WALLCLOCK, not scaled delta.
 	_step.commit(Vector3.ZERO, Vector3(0, 0, 1.0), "STONE")

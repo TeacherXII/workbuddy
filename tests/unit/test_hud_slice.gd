@@ -404,10 +404,22 @@ func test_exposure_alert_ui_non_color():
 	assert_gt(HudColors.wcag_contrast(HudColors.HUD_COLOR_ALARM, backdrop), 3.0,
 		"C-03: the alarm border must clear 3:1 against its own fill")
 
-	# C-06 is only a READ POINT this sprint (the switch itself is Sprint 2), but
-	# the substitute colour must already be wired to the signed value.
-	assert_eq(HudColors.HUD_COLOR_ALARM_CB, HudColors.HUD_COLOR_CAUTION,
-		"C-06: the colour-blind substitute for ALARM is the signed Caution amber")
+	# C-06 was a placeholder READ POINT in Sprint 1: the switch did not exist
+	# yet, so the only thing this line could check was that one constant equalled
+	# another. Sprint 2 Batch C landed the switch, so the placeholder is now the
+	# real contract — and it is inverted into a REVERSE LOCK.
+	# The Sprint 1 constant it used to read (HUD_COLOR_ALARM_CB, defined as
+	# "= Caution") was retired with it: control-manifest v0.2 C-06 voided that
+	# mapping because Caution IS #C8862F, so it collapsed 警戒 and 警报 onto a
+	# single colour at 1.00:1 — see the tombstone in src/ui/hud_colors.gd.
+	# From here on the failure direction is reversed: this test no longer
+	# certifies the substitute, it FORBIDS the regression. Anyone who wires the
+	# colour-blind danger colour back onto the Caution amber breaks the build.
+	assert_eq(HudColors.danger_color(A11ySettings.ColorBlindMode.DEUTAN),
+		HudColors.HUD_COLOR_DANGER_CB,
+		"C-06: with a substitution active, danger must render as HUD_COLOR_DANGER_CB")
+	assert_ne(HudColors.HUD_COLOR_DANGER_CB, HudColors.HUD_COLOR_CAUTION,
+		"C-06 reverse lock: the substitute must NEVER collapse onto the Caution amber")
 
 
 # --- E07-S6 (Sprint 2 · Batch B) ---------------------------------------------

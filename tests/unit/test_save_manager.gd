@@ -52,13 +52,25 @@ const SIGNAL_TIMEOUT := 1.0
 
 # a11y field names that MUST NOT appear in save_manager.gd (FLAG-J: the prefs API
 # is field-agnostic, otherwise SAV-S4 <-> E09-S7 becomes a dependency cycle).
+#
+# ★ This list is the LIVE half of FLAG-J and must GROW with the field model.
+#   Batch C (E09-S7) added the Tier2 fields below the divider; if a future story
+#   adds a field and forgets to register it here, SaveManager can start naming it
+#   and the cycle re-forms silently — the scan would still be green because it
+#   only checks the names it was told about.
 const A11Y_FIELD_NAMES := [
+	# Sprint 0 / Sprint 1 fields (some are now backward-compat facades).
 	"color_blind_mode",
 	"time_scale_min",
 	"screen_shake",
 	"fog_enabled",
 	"motion_blur",
 	"text_scale",
+	# --- Sprint 2 · Batch C, E09-S7 Tier2 model -----------------------------
+	"colorblind_mode",   # E09-S5a, the four-state enum behind color_blind_mode
+	"time_scale_user",   # E09-S5b, T-01 slider value
+	"fog_option",        # E09-S5c, the three-state rung behind fog_enabled
+	"subtitles",         # E09-S5d, X-02
 ]
 
 

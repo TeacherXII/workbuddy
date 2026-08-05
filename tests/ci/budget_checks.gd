@@ -34,6 +34,12 @@ const SaveManagerScript := preload("res://src/core/save_manager.gd")
 # [Sprint 2 · Batch B] E07-S7/S8. Only the STATIC cap constant is read; this
 # file never instantiates the registry.
 const InteractableRegistryScript := preload("res://src/game/interactables/interactable_registry.gd")
+# [Sprint 2 · Batch C] E09-S7. Only STATIC members (enums, range constants and
+# the default_values() static) are read; this file never instantiates the Node.
+const A11yModel := preload("res://src/core/a11y_settings.gd")
+# [Sprint 2 · Batch C] E09-S5b. Read for ONE reason: to cross-check that the
+# a11y model's advertised 凝神 default is the number the clock actually uses.
+const TimeControllerScript := preload("res://src/core/time_controller.gd")
 
 # R-02: dynamic point lights per screen (MVP<=12 / Tier2<=32).
 const LIGHT_BUDGET_MVP := 12
@@ -62,6 +68,18 @@ const INTERACTABLE_DIR := "res://src/game/interactables"
 # Node3D, Area3D...) is an orphan risk.
 const ORPHAN_SAFE_BASES := ["RefCounted", "InteractableEntity"]
 
+# --- E09-S7 (Sprint 2 · Batch C) --------------------------------------------
+# The Tier2 accessibility defaults the control manifest REQUIRES the game to
+# ship with. These are not ranges — an in-range but wrong default is still a
+# shipped accessibility regression (a player who never opens the settings screen
+# gets whatever is written here, which is the whole point of a default).
+#   V-03 screen_shake = false · V-05 motion_blur = false · X-02 subtitles = true
+const A11Y_MANDATED_DEFAULTS := {
+	"screen_shake": false,
+	"motion_blur": false,
+	"subtitles": true,
+}
+
 
 var _captured: PackedStringArray = []
 var _scan_root := "res://"
@@ -85,6 +103,7 @@ func run(scan_root := "res://") -> PackedStringArray:
 	_check_save_size()
 	_check_no_orphan_interactables()
 	_check_interactable_instance_cap()
+	_check_a11y_values()
 	return _captured
 
 
@@ -365,6 +384,110 @@ func scan_interactable_count(count: int, source := "<inline>") -> PackedStringAr
 		_warn("interactable-instance-cap",
 			"scene declares %d interactables > cap %d" % [count, cap], source)
 	return _captured
+
+
+# --- @ci:a11y-values-in-range (E09-S7, WARN-ONLY) ---------------------------
+# ★ WARN-ONLY, same [D15-A]/[N-12] rule as the SAV and E07 checks. Promotion to
+#   a hard gate is a separate design decision.
+#
+# What this scan actually defends. A11ySettings clamps on WRITE, so a running
+# game cannot hold an out-of-range value and a hand-edited prefs.json is
+# normalised on load. The remaining exposure is therefore NOT runtime data — it
+# is the SOURCE: a developer retuning TIME_SCALE_DEFAULT to 0.05 "to feel it",
+# or flipping screen_shake's initialiser to true, ships an accessibility
+# regression that every runtime clamp will faithfully preserve. This scan reads
+# the shipped constants and says so.
+#
+# Three real scans, no stubs (N-11):
+#   ① every shipped default sits inside its control-manifest range / enum
+#   ② the two clocks agree — A11ySettings T-01/T-02 vs TimeController's own
+#      FOCUS_SCALE / USER_MIN / USER_MAX
+#   ③ the mandated Tier2 defaults (V-03 / V-04 / V-05 / X-02 / C-06) are intact
+func _check_a11y_values() -> void:
+	var before := _captured.size()
+	var defaults: Dictionary = A11yModel.default_values()
+	var source := "a11y_settings.gd::default_values()"
+
+	# ① ranges + enums
+	_scan_a11y_values(defaults, source)
+
+	# ② the settings screen must not advertise a number the clock does not use.
+	if not is_equal_approx(A11yModel.TIME_SCALE_DEFAULT, TimeControllerScript.FOCUS_SCALE):
+		_warn("a11y-values-in-range",
+			"T-02 default disagrees with the clock",
+			"A11ySettings.TIME_SCALE_DEFAULT=%.3f vs TimeController.FOCUS_SCALE=%.3f"
+				% [A11yModel.TIME_SCALE_DEFAULT, TimeControllerScript.FOCUS_SCALE])
+	if not is_equal_approx(A11yModel.TIME_SCALE_MIN, TimeControllerScript.USER_MIN):
+		_warn("a11y-values-in-range",
+			"T-01 lower bound disagrees with the clock",
+			"A11ySettings.TIME_SCALE_MIN=%.3f vs TimeController.USER_MIN=%.3f"
+				% [A11yModel.TIME_SCALE_MIN, TimeControllerScript.USER_MIN])
+	if not is_equal_approx(A11yModel.TIME_SCALE_MAX, TimeControllerScript.USER_MAX):
+		_warn("a11y-values-in-range",
+			"T-01 upper bound disagrees with the clock",
+			"A11ySettings.TIME_SCALE_MAX=%.3f vs TimeController.USER_MAX=%.3f"
+				% [A11yModel.TIME_SCALE_MAX, TimeControllerScript.USER_MAX])
+
+	# ③ mandated defaults
+	for key in A11Y_MANDATED_DEFAULTS:
+		var want: bool = A11Y_MANDATED_DEFAULTS[key]
+		var got := bool(defaults.get(key, not want))
+		if got != want:
+			_warn("a11y-values-in-range",
+				"mandated default `%s` must ship as %s" % [key, str(want)],
+				"%s -> %s" % [source, str(got)])
+	if int(defaults.get("fog_option", -1)) != A11yModel.FogOption.FULL:
+		_warn("a11y-values-in-range", "V-04 default fog rung must be FULL",
+			"%s -> %s" % [source, str(defaults.get("fog_option", "<missing>"))])
+	if int(defaults.get("colorblind_mode", -1)) != A11yModel.ColorBlindMode.OFF:
+		_warn("a11y-values-in-range", "C-06 default colour-blind mode must be OFF",
+			"%s -> %s" % [source, str(defaults.get("colorblind_mode", "<missing>"))])
+
+	if _captured.size() == before:
+		prints("[CI:budget][OK][a11y-values-in-range] %d shipped default(s) in range; clock agrees (focus=%.2f in [%.2f, %.2f])"
+			% [defaults.size(), A11yModel.TIME_SCALE_DEFAULT,
+				A11yModel.TIME_SCALE_MIN, A11yModel.TIME_SCALE_MAX])
+
+
+## Reverse-assertion surface (N-11/N-12): hand in an a11y dictionary — the shape
+## A11ySettings.to_dict() / default_values() produce — and get the emitted
+## warning ids back, so a GUT test can prove an out-of-range value really
+## produces a [WARN] instead of the scan rotting green.
+func scan_a11y_values(values: Dictionary, source := "<inline>") -> PackedStringArray:
+	_captured = PackedStringArray()
+	_scan_a11y_values(values, source)
+	return _captured
+
+
+func _scan_a11y_values(values: Dictionary, source: String) -> void:
+	_scan_a11y_range("time_scale_user", values,
+		A11yModel.TIME_SCALE_MIN, A11yModel.TIME_SCALE_MAX, source)
+	_scan_a11y_range("time_scale_min", values,
+		A11yModel.TIME_SCALE_MIN, A11yModel.TIME_SCALE_MAX, source)
+	_scan_a11y_range("text_scale", values,
+		A11yModel.TEXT_SCALE_MIN, A11yModel.TEXT_SCALE_MAX, source)
+	_scan_a11y_enum("colorblind_mode", values, A11yModel.CB_MODE_NAMES, source)
+	_scan_a11y_enum("fog_option", values, A11yModel.FOG_OPTION_NAMES, source)
+
+
+func _scan_a11y_range(key: String, values: Dictionary, lo: float, hi: float, source: String) -> void:
+	if not values.has(key):
+		_warn("a11y-values-in-range", "`%s` is missing from the a11y model" % key, source)
+		return
+	var v := float(values[key])
+	if v < lo or v > hi:
+		_warn("a11y-values-in-range", "`%s` outside [%.2f, %.2f]" % [key, lo, hi],
+			"%s -> %.3f" % [source, v])
+
+
+func _scan_a11y_enum(key: String, values: Dictionary, legal: Dictionary, source: String) -> void:
+	if not values.has(key):
+		_warn("a11y-values-in-range", "`%s` is missing from the a11y model" % key, source)
+		return
+	var v := int(values[key])
+	if not legal.has(v):
+		_warn("a11y-values-in-range", "`%s` is not a legal enum value" % key,
+			"%s -> %d (legal: %s)" % [source, v, str(legal.keys())])
 
 
 func _count_interactable_script_refs(tscn_path: String) -> int:
