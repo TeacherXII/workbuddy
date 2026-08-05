@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | **D5** | 声音结算口径 | **脉冲**：`S += KS(15) × falloff`，**不乘 dt**。视觉仍按速率 `KV(35) × vis × dt`。基线式 `dS/dt = vision_vis×KV(35) + sound×KS(15) − (stimulus?0:decay(8))` | **CLOSED**（主理人） | §2.1 · §3.2 · §3.12 |
 | **D6** | `guard_fsm_changed` 值域 | **改 int enum 对齐**：`EventBus.GuardState { PATROL/CALM=0, INVESTIGATE/SUSPICIOUS=1, ALERT=2, SEARCH=3, RETURN=4 }`；签名 `(guard_id:int, old:GuardState, new:GuardState)` | **CLOSED**（主理人，**推翻评审 R1 建议**） | §2.2 · §7.1 |
-| **D7** | HUD 三档色值 | **林绘澄签字 PASS**：Carrier `#DCE3EC` / Calm `#3E5C76` / Caution `#C8862F` / Alarm `#D64545` / Alarm-Fill `#7A2E2E`（仅填充 α≤0.35）/ CB `= Caution` | **CLOSED**（美术签字） | §2.3 · §3.8 · §3.11 |
+| **D7** | HUD 三档色值 | **林绘澄签字 PASS**：Carrier `#DCE3EC` / Calm `#3E5C76` / Caution `#C8862F` / Alarm `#D64545` / Alarm-Fill `#7A2E2E`（仅填充 α≤0.35）/ **CB `#F0C070`**（~~`= Caution`~~ 已作废，见下） | **CLOSED**（美术签字，**CB 值经 v1.1 追认改判**） | §2.3 · §3.8 · §3.11 |
 | **D8** | `interactable_triggered` 签名 | **本批收口**：`(obj_id:int, type:InteractableType, payload:Dictionary)`；`InteractableType { DECOY, LIGHT_TOGGLE, TRAP, SMOKE }` | **CLOSED**（主理人） | §2.2 · §3.10 · §7.1 |
 | **D9** | E01-S5 / E01-S8 排期 | **seam 占位 + 延 Sprint 2**：`_checkpoint_sink` / `_path_provider` 两个 `Callable`；E01-S5（SaveManager）/ E01-S8（NavServer）正式排入 **Sprint 2** | **CLOSED**（主理人） | §3.4 · §3.5 · §10 |
 | **D10** | 7 个新增常量 | `LOST_TARGET_RT=0.5s` · `RETURN_SETTLE_RT=1.0s` · `STIM_EPS=0.001` · `SUS_EMIT_EPS=0.5` · `MAX_CATCHUP_TICKS=3` · `XFORM_POS_EPS=0.5m` · `XFORM_YAW_EPS_DEG=5.0°` | **CLOSED**（全数采纳，逐字入规格） | §2.1 |
@@ -143,7 +143,9 @@ const HUD_COLOR_CALM       := Color.from_string("#3E5C76", Color.WHITE)  #  2.53
 const HUD_COLOR_CAUTION    := Color.from_string("#C8862F", Color.WHITE)  #  5.84:1  C-01/C-03 ✅
 const HUD_COLOR_ALARM      := Color.from_string("#D64545", Color.WHITE)  #  4.06:1  C-03 ✅（边框/图标）
 const HUD_COLOR_ALARM_FILL := Color.from_string("#7A2E2E", Color.WHITE)  #  1.91:1  ★仅填充 α≤0.35
-const HUD_COLOR_ALARM_CB   := HUD_COLOR_CAUTION                          # C-06 色盲模式替换
+# C-06 色盲模式替换。★ 旧写法 `:= HUD_COLOR_CAUTION`（=#C8862F）已作废：警戒本就是 #C8862F，
+# 映射后警戒与警报同色值、亮度比塌缩至 1.00:1（art-bible v0.3 §9.1 / control-manifest v0.2 C-06）。
+const HUD_COLOR_ALARM_CB   := Color.from_string("#F0C070", Color.WHITE)  # 10.55:1  vs CAUTION 1.81:1
 # 预批准备选（仅当审计要求警报边框自身过 C-01 时启用，不得另造）
 const HUD_COLOR_ALARM_ALT  := Color.from_string("#E0584F", Color.WHITE)  #  4.80:1  C-01 ✅
 
@@ -164,7 +166,9 @@ const ALARM_FILL_ALPHA_MAX := 0.35   # ★ #7A2E2E 的硬上限（签字稿 §3�
 
 **验算（供 QA 直接断言，非估值）**
 - 暴露层：`#7A2E2E` @α0.35 over `#16181D` 合成 = `#392320`（L≈0.0201）→ Carrier 文字对其 **11.59:1 ≥7 (C-02 ✅)**；`#D64545` 边框对其 **3.42:1 ≥3 (C-03 ✅)**。⇒ **即便在自家红底上，白字与红框仍双双达标。**
-- 色盲模式（C-06）：ALERT 边框 `#D64545 → #C8862F`。此时 SUSPICIOUS 与 ALERT **同为琥珀**，靠 **`?` vs `!` 图标 + 填充亮度档（0.60 vs 0.92）+ 脉冲有无** 三重区分 ⇒ C-05/C-07 仍成立，**不靠单一色相**。
+- 色盲模式（C-06）：ALERT 边框 **`#D64545 → #F0C070`**（L=0.574）。此时 SUSPICIOUS（`#C8862F`，L=0.295）与 ALERT **同属琥珀族但亮度比 1.81:1 可分**，再叠 **空心圆环 `?` vs 实心三角 `!` 图标（面积级差异）+ 填充亮度档（0.60 vs 0.92）+ 脉冲频率 0.5Hz 单拍 vs 2.0Hz 双拍** ⇒ C-05/C-07 成立，**不靠单一色相**。`#F0C070` vs 面板 `#16181D` = **10.55:1**，连 C-02 都过。
+  > **⚠️ 本行旧理据已被推翻（Sprint 3 更正）**：原文写「ALERT 边框 `#D64545 → #C8862F`…SUSPICIOUS 与 ALERT **同为琥珀**…C-05/C-07 仍成立」。该论证**不成立**——警戒 CAUTION **本就是** `#C8862F`，旧映射后两档是**同一色值、亮度比 1.00:1**，C-05 三重编码的**亮度维度彻底塌缩**，只剩 `?`/`!` 笔画级字符可辨（`hud-a11y-signature.md` v1.1 §5 / art-bible v0.3 §9.1 / control-manifest v0.2 C-06 已明文作废旧口径）。**请勿照此旧文实现。**
+  > 另：**脉冲频率与图标面积编码为常驻维度，不随色盲开关切换**——因默认模式下 `#C8862F` vs `#D64545` 亮度比也仅 1.44:1。
 
 #### 2.3.3 可疑度条亮度阶梯（★ 本文新增派生规格，见 §11 NEW-1）
 
@@ -832,7 +836,7 @@ const EXPOSURE_FADE_SEC   := 0.4     # V-06 ease 淡入，禁硬切
 | **标签/提示文本** | `HudColors.HUD_COLOR_CARRIER` | **C-02 11.59:1**（对合成红底）✅ |
 | **脉冲** | 边框/图标 alpha 脉动，`EXPOSURE_PULSE_HZ ≤ 2.0` | V-02 |
 | **屏震** | 读 `A11ySettings.screen_shake`（`a11y_settings.gd:15`，默认 `false`） | V-03 可断言默认关 |
-| **色盲（C-06）** | 边框/图标 → `HudColors.HUD_COLOR_ALARM_CB`（`= #C8862F`） | **本批仅预留读取点** `A11ySettings.color_blind_mode`（`a11y_settings.gd:13`），**不做开关** |
+| **色盲（C-06）** | 边框/图标 → `HudColors.HUD_COLOR_ALARM_CB`（**`= #F0C070`**；~~`#C8862F`~~ 旧口径已作废，见 §2.3.2 注） | **本批仅预留读取点** `A11ySettings.color_blind_mode`（`a11y_settings.gd:13`），**不做开关** |
 
 **Sprint 1 边界（D9）**
 - ✅ 收 `exposure_detected` → 显示暴露 ALERT 覆盖层
@@ -933,7 +937,7 @@ func _on_sound_emitted(payload: Dictionary) -> void:
 | `HUD_COLOR_CAUTION` | `#C8862F` | **D7 签字** | E09-S2 | H12 |
 | `HUD_COLOR_ALARM` | `#D64545` | **D7 签字** | E09-S2/S6 | H12 H17 |
 | `HUD_COLOR_ALARM_FILL` | `#7A2E2E`（仅填充） | **D7 签字** | E09-S6 | H12（**反向断言**） H17 |
-| `HUD_COLOR_ALARM_CB` | `= CAUTION` | **D7 签字** | E09-S6（C-06 预留） | H17 |
+| `HUD_COLOR_ALARM_CB` | **`#F0C070`**（~~`= CAUTION`~~ 作废） | **D7 签字 + v1.1 追认改判** | E09-S6（C-06 预留） | H17 |
 | `ALARM_FILL_ALPHA_MAX` | 0.35 | **D7 签字 §3** | E09-S6 | H12 H17 |
 | `SUS_FILL_ALPHA` | 0.30/0.60/0.75/0.92 | **本文派生（NEW-1）** | E09-S2 | H12 H13 |
 | `EXPOSURE_PULSE_HZ` | 2.0 | V-02 | E09-S6 | H17 |
