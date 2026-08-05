@@ -316,6 +316,14 @@ func slot_path(slot_id: int) -> String:
 	return "%sslot_%d.json" % [_save_dir, slot_id]
 
 
+## O-3 (Sprint 3 · S3-B ruling): staging path for the atomic slot write.
+## DERIVED from slot_path() so the two can never drift onto different
+## directories, and SUFFIXED rather than prefixed so a leftover staging file
+## sorts next to the slot it belongs to during triage.
+func slot_tmp_path(slot_id: int) -> String:
+	return slot_path(slot_id) + ".tmp"
+
+
 func has_checkpoint() -> bool:
 	return not _checkpoint_cache.is_empty() or FileAccess.file_exists(slot_path(CHECKPOINT_SLOT_ID))
 
@@ -350,16 +358,94 @@ func _flush_write(slot_id: int, slot: Dictionary) -> void:
 			# @ci:save-size-budget — WARN-ONLY, the write still goes through.
 			push_warning("SaveManager: slot %d is %d bytes (> %d budget)"
 				% [slot_id, last_slot_size_bytes, SLOT_SIZE_BUDGET_BYTES])
-		var f := FileAccess.open(slot_path(slot_id), FileAccess.WRITE)
-		if f == null:
-			push_error("SaveManager: cannot open %s for writing (err=%d)"
-				% [slot_path(slot_id), FileAccess.get_open_error()])
-			ok = false
-		else:
-			f.store_string(json)
-			f.close()
+		ok = _write_atomic(slot_id, json)
 
 	_emit_now(&"save_completed", [slot_id, ok])
+
+
+## ── O-3 · ATOMIC SLOT WRITE (staging file + rename) ─────────────────────────
+##
+## THE FAILURE THIS CLOSES. The Sprint 2 implementation opened the REAL slot
+## path with FileAccess.WRITE, and WRITE truncates the destination to zero
+## length before the first byte lands. A crash, a power cut or a full disk
+## between that truncation and the final store_string() left a slot that
+## existed, was readable, and was half a JSON document. read_slot() would then
+## reject it as `parse_failed` — and the player's previous, perfectly good save
+## was already gone. SAV-S6 promises「不覆盖写回」and UX spec EC-7 promises the
+## row still shows its ORIGINAL content after a failed write. Neither promise
+## could be kept while the destination was being truncated in place.
+##
+## THE GUARD. Every byte goes to `<slot>.json.tmp` first. The destination is
+## touched only by the rename, which cannot produce a partial file: either the
+## rename lands and the slot is the COMPLETE new document, or it does not and
+## the slot is the COMPLETE old one. There is no third state.
+##
+## ★ HONEST LIMIT — do not oversell this in review. rename() is atomic on
+## POSIX. On Windows, Godot's DirAccess::rename() removes an existing
+## destination before renaming, so a narrow window exists in which the slot is
+## ABSENT. That is a strictly weaker guarantee, but the failure it leaves is
+## "slot missing", which read_slot() already reports as an empty slot — a legal,
+## honest state. The old behaviour left "slot corrupt", which is silent data
+## loss wearing the mask of a valid file. Closing the Windows window completely
+## needs ReplaceFileW, which GDScript cannot reach; if that ever matters, it is
+## a GDExtension task, not a tweak here.
+##
+## The staging file is removed on EVERY failure path, so a botched write cannot
+## leave litter that later triage mistakes for a real slot.
+func _write_atomic(slot_id: int, json: String) -> bool:
+	var final_path := slot_path(slot_id)
+	var tmp_path := slot_tmp_path(slot_id)
+
+	var f := FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f == null:
+		push_error("SaveManager: cannot open staging file %s for writing (err=%d)"
+			% [tmp_path, FileAccess.get_open_error()])
+		return false
+	f.store_string(json)
+	# flush() before close() is deliberate belt-and-braces: close() flushes too,
+	# but doing it explicitly means the bytes are pushed at a point where
+	# get_error() is still readable, rather than inside a destructor whose
+	# result nobody can see.
+	f.flush()
+	var write_err := f.get_error()
+	f.close()
+	if write_err != OK:
+		push_error("SaveManager: staging write failed for slot %d (err=%d) — slot left untouched"
+			% [slot_id, write_err])
+		_discard_staging(tmp_path)
+		return false
+
+	# Reverse check BEFORE the swap. A staging file whose length is not the
+	# length we just serialised means the bytes did not all land (short write on
+	# a full disk is the common case), and promoting it over a good slot would
+	# be the exact data loss this function exists to prevent.
+	var staged := FileAccess.open(tmp_path, FileAccess.READ)
+	if staged == null:
+		push_error("SaveManager: staging file %s unreadable before rename (err=%d) — slot left untouched"
+			% [tmp_path, FileAccess.get_open_error()])
+		_discard_staging(tmp_path)
+		return false
+	var staged_len := int(staged.get_length())
+	staged.close()
+	var expected_len := json.to_utf8_buffer().size()
+	if staged_len != expected_len:
+		push_error("SaveManager: staging file %s is %d bytes, expected %d — slot left untouched"
+			% [tmp_path, staged_len, expected_len])
+		_discard_staging(tmp_path)
+		return false
+
+	var err := DirAccess.rename_absolute(tmp_path, final_path)
+	if err != OK:
+		push_error("SaveManager: cannot promote %s to %s (err=%d) — slot left untouched"
+			% [tmp_path, final_path, err])
+		_discard_staging(tmp_path)
+		return false
+	return true
+
+
+func _discard_staging(tmp_path: String) -> void:
+	if FileAccess.file_exists(tmp_path):
+		DirAccess.remove_absolute(tmp_path)
 
 
 func _reject(slot_id: int, reason: String, detail: String) -> Dictionary:

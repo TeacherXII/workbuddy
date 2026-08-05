@@ -98,6 +98,46 @@ const HUD_COLOR_DANGER_CB := Color("#F0C070")
 # exempt from C-03.
 const HUD_COLOR_BOUNDARY := Color("#4E6E8A")
 
+# ── Sprint 3 · S3-B (SAV-S5) additions ──────────────────────────────────────
+# ★ FOCUS RING — O-1 Option A (principal ruling, sprint3-plan.md §7).
+#
+#   The focus ring is its OWN semantic slot. It belongs to art-bible §9.4
+#  「输入可访问性」and is NOT governed by C-06. The previous "(C-06)" annotation
+#   on the SAV-S5 AC was a labelling error: #C8862F happened to occupy BOTH the
+#   focus-ring slot and the (now void) C-06 mapping target, but they were never
+#   the same rule.
+#
+#   WHY IT MOVED. A focus ring is a「关键操作指示」and must clear C-02 (>=7:1).
+#   #C8862F is 5.65:1 against the save panel #1B1B1F — it clears C-01 but NOT
+#   C-02, so it was rejected on contrast grounds, not on C-06 grounds.
+#   #F0C070 is 10.20:1 against #1B1B1F (10.55:1 against the reference panel).
+#
+#   ★ THIS IS A SEPARATE CONSTANT FROM HUD_COLOR_DANGER_CB ON PURPOSE.
+#   The two currently hold the SAME hex and that is exactly the residual risk
+#   logged as FLAG-L: in colour-blind mode a focused corrupt row draws its ring
+#   and its badge in the same colour (1.00:1). Keeping ONE name per semantic
+#   slot is what lets a future ruling re-point the focus ring without dragging
+#   the C-06 substitute along with it. Do NOT collapse these into an alias.
+#
+#   The collapse is survivable because neither channel depends on hue alone:
+#   the ring is 0Hz + rectangular stroke, the corrupt badge is 2.0Hz + a solid
+#   triangle. Frequency and shape are PERMANENT encodings (hud-a11y-signature
+#   v1.1 §5.1), so C-05's triple coding does not degrade. The reverse assertion
+#   for that pair lives in tests/unit/test_save_ui.gd.
+const HUD_COLOR_FOCUS := Color("#F0C070")
+
+# Save-panel surfaces (sprint3-sav-s5-ux-spec.md §1.3 layer table / §2.1).
+# Named here rather than inlined in the save UI because this file is the sole
+# colour authority — src/ui/*.gd may not carry colour literals of their own.
+#
+# HUD_COLOR_PANEL_SLOT is the CONTRAST DENOMINATOR for the whole save screen.
+# The slot rows are drawn 100% opaque against it precisely so that every ratio
+# in the spec's §2.1 table is a fixed number a headless test can assert,
+# instead of a function of whatever the world happened to look like behind it.
+const HUD_COLOR_PANEL_SLOT := Color("#1B1B1F")   #  ----   save panel / row base
+const HUD_COLOR_SCRIM := Color("#10141C")        #  ----   world scrim, alpha 0.60
+const HUD_COLOR_THUMB_FILL := Color("#2A2A30")   #  ----   thumbnail placeholder fill
+
 # C-07「危险提示绝不单独使用」. The glyph is returned for EVERY colour-blind mode
 # INCLUDING OFF: the shape channel is permanent, not a colour-blind fallback.
 const DANGER_ICON := "!"

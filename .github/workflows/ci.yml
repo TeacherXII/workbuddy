@@ -141,6 +141,29 @@ jobs:
             grep -nE '\[Risky\]:|\[Pending\]:|\[Risky\] Script was skipped' gut_output.txt 2>/dev/null | head -20 || true
             exit 1
           fi
+          # ── N-7b: a test file that never LOADED is worse than a risky one ──
+          # Discovered on PR #10 (Sprint 3 Batch B). A GDScript parse error makes
+          # Godot drop the file BEFORE GUT can collect it, so the script simply
+          # is not in the run. GUT then prints a perfectly clean summary of the
+          # scripts that DID load ("Scripts 13 Tests 149 Passing 149") and every
+          # gate above passes — including N-7, because a file that never loaded
+          # can never emit "[Risky] Script was skipped". Result: a fully GREEN
+          # build in which an entire 35-test suite ran zero times.
+          #
+          # This is the N-7 principle one level up: N-7 catches a TEST that
+          # asserted nothing; this catches a FILE that executed nothing. Absence
+          # of evidence was being reported as evidence of absence.
+          #
+          # Matched on Godot's own loader error, which is unambiguous and cannot
+          # be produced by a passing test's description (unlike a bare "[Risky]"
+          # — see the Batch D false-red incident above, whose lesson we keep by
+          # matching the engine's exact wording rather than a loose keyword).
+          if grep -qE 'Failed to load script|SCRIPT ERROR:.*Parse error' gut_output.txt 2>/dev/null; then
+            echo "::error::A test script failed to LOAD — it was silently excluded from the run (N-7b gate)."
+            echo ">>> Unloadable scripts:"
+            grep -nE 'Failed to load script|SCRIPT ERROR:.*Parse error' gut_output.txt 2>/dev/null | head -20 || true
+            exit 1
+          fi
           if ! grep -qF '[Failed]' gut_output.txt 2>/dev/null \
              && ! echo "$SUMMARY" | grep -qE 'Failing[[:space:]]*[:=]?[[:space:]]*[1-9][0-9]*'; then
             echo "GUT reports zero failures and zero risky tests — job passes."
