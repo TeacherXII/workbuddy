@@ -29,6 +29,17 @@
 # and MUST NOT change this script's exit code. The pre-existing R-02 (dynamic
 # light scan) and G-02 (runtime, test_sound_propagation.gd) assertions are
 # untouched — E07-S8 requires that adding DECOY/LIGHT_TOGGLE does not break them.
+#
+# [Sprint 3 · Batch A] G-01 guard-instance budget joined the WARN-ONLY roster:
+#   @ci:guard-instance-budget  (E08-S9 / G-01) — peak active guards per area
+#                                   MVP <= 8 / Tier2 <= 16. The REAL enforcement
+#                                   (REFUSE-over-cap + rejection ledger) lives in
+#                                   GuardSpawner and is asserted by
+#                                   tests/unit/test_guard_variants.gd; this CI
+#                                   scan (budget_checks.gd::_check_guard_budget)
+#                                   checks the shipped caps against the
+#                                   control-manifest authority and counts any
+#                                   scene-placed guard brains. WARN-ONLY, exit 0.
 
 extends SceneTree
 

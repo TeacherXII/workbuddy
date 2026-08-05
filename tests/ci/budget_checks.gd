@@ -16,6 +16,11 @@
 #   G-04 -> src/game/patrol_ai.gd DECISION_HZ / decision_count (Batch C)
 #           asserted by tests/unit/test_patrol_ai.gd::test_fsm_tick_le_10hz
 #   G-05 -> no A* in Sprint 1; revisit in Sprint 2
+#   G-01 -> src/game/guard_spawner.gd GUARD_BUDGET_* + budget_warnings()
+#           (runtime REFUSE-over-cap + rejection ledger asserted by
+#           tests/unit/test_guard_variants.gd) AND a WARN-ONLY CI surface in
+#           _check_guard_budget() (cap-vs-authority + scene scan) + the
+#           scan_guard_budget() reverse-assertion surface below.
 #
 # [D15-A] WARN-ONLY: run() always returns a list (never exits non-zero) and
 #         never emits "[Risky]". Gate promotion is a Sprint 2 decision. [N-12]
@@ -40,6 +45,12 @@ const A11yModel := preload("res://src/core/a11y_settings.gd")
 # [Sprint 2 · Batch C] E09-S5b. Read for ONE reason: to cross-check that the
 # a11y model's advertised 凝神 default is the number the clock actually uses.
 const TimeControllerScript := preload("res://src/core/time_controller.gd")
+# [Sprint 3 · Batch A] E08-S9 / G-01. Only the STATIC budget constants and the
+# budget_warnings() static are read — this file never instantiates the spawner.
+# The spawner's own runtime refusal path (REFUSE over cap + rejection ledger) is
+# asserted by tests/unit/test_guard_variants.gd, following the G-02/G-04
+# precedent for runtime budgets; this CI scan is the WARN-ONLY static surface.
+const GuardSpawnerScript := preload("res://src/game/guard_spawner.gd")
 
 # R-02: dynamic point lights per screen (MVP<=12 / Tier2<=32).
 const LIGHT_BUDGET_MVP := 12
@@ -50,6 +61,13 @@ const FOG_BASE_MAX := 0.05
 
 # C-02: key indicator contrast >= 7:1 vs panel base (control-manifest :59).
 const CONTRAST_MIN_C02 := 7.0
+
+# G-01 (control-manifest :86) — peak active guards per area/screen.
+# These two are the AUTHORITY (the control-manifest numbers). GuardSpawner's own
+# GUARD_BUDGET_* constants are the implementation; _check_guard_budget() asserts
+# they agree with this authority so a silent cap bump surfaces as [WARN].
+const GUARD_BUDGET_MVP_AUTH := 8
+const GUARD_BUDGET_TIER2_AUTH := 16
 
 # ★ Explicit whitelist: only INFORMATION CARRIERS enter C-02.
 # HUD_COLOR_ALARM_FILL (#7A2E2E, ~1.91:1) is "FILL ONLY" and MUST be excluded
@@ -104,6 +122,7 @@ func run(scan_root := "res://") -> PackedStringArray:
 	_check_no_orphan_interactables()
 	_check_interactable_instance_cap()
 	_check_a11y_values()
+	_check_guard_budget()
 	return _captured
 
 
@@ -488,6 +507,76 @@ func _scan_a11y_enum(key: String, values: Dictionary, legal: Dictionary, source:
 	if not legal.has(v):
 		_warn("a11y-values-in-range", "`%s` is not a legal enum value" % key,
 			"%s -> %d (legal: %s)" % [source, v, str(legal.keys())])
+
+
+# --- @ci:guard-instance-budget (G-01, WARN-ONLY) ----------------------------
+# control-manifest :86 — 同区活动守卫峰值 MVP <= 8 / Tier2 <= 16.
+#
+# ★ WARN-ONLY, same [D15-A]/[N-12] rule as every check here. This check has TWO
+#   real parts (no stubs — N-11):
+#   ① The shipped caps (GuardSpawner.GUARD_BUDGET_*) must agree with the
+#      control-manifest authority above. A silent cap bump to 12/20 would satisfy
+#      "the code says <= 12" while breaking G-01's contract — this flags it
+#      before any level is authored.
+#   ② A level that SCENE-PLACES a guard brain (an anti-pattern — guards are
+#      normally spawned procedurally by GuardSpawner, which is where the real
+#      refusal path lives and where tests/unit/test_guard_variants.gd asserts the
+#      MVP<=8 / Tier2<=16 refusal) is counted against the conservative MVP rung.
+#      This count is usually 0 in this architecture — an HONEST empty scan (R-06
+#      precedent), NOT an always-pass stub: it WOULD fire if a scene placed more
+#      than 8 guard brains. The assertion LOGIC is reverse-asserted separately by
+#      test_budget_assert.gd::test_budget_assert_emits_warn_on_guard_overflow so
+#      it cannot rot green (the QA gap N-11/N-12 names).
+func _check_guard_budget() -> void:
+	var before := _captured.size()
+
+	# ① caps vs authority
+	if GuardSpawnerScript.GUARD_BUDGET_MVP > GUARD_BUDGET_MVP_AUTH:
+		_warn("guard-instance-budget",
+			"MVP guard cap %d exceeds control-manifest G-01 (%d)" % [GuardSpawnerScript.GUARD_BUDGET_MVP, GUARD_BUDGET_MVP_AUTH],
+			"guard_spawner.gd -> a level could ship >%d MVP-area guards" % GUARD_BUDGET_MVP_AUTH)
+	if GuardSpawnerScript.GUARD_BUDGET_TIER2 > GUARD_BUDGET_TIER2_AUTH:
+		_warn("guard-instance-budget",
+			"Tier2 guard cap %d exceeds control-manifest G-01 (%d)" % [GuardSpawnerScript.GUARD_BUDGET_TIER2, GUARD_BUDGET_TIER2_AUTH],
+			"guard_spawner.gd -> a level could ship >%d Tier2-area guards" % GUARD_BUDGET_TIER2_AUTH)
+
+	# ② real scene scan of guard-brain placements
+	var placed := 0
+	for f in _list_tscn():
+		placed += _count_guard_script_refs(f)
+	for w in GuardSpawnerScript.budget_warnings(placed, GuardSpawnerScript.Tier.MVP):
+		_warn(w, "scene-placed guards %d > MVP cap %d" % [placed, GUARD_BUDGET_MVP_AUTH],
+			"sum across .tscn (guards normally spawned by GuardSpawner)")
+
+	if _captured.size() == before:
+		prints("[CI:budget][OK][guard-instance-budget] MVP cap=%d (<= G-01 %d); Tier2 cap=%d (<= G-01 %d); scene-placed guards=%d"
+			% [GuardSpawnerScript.GUARD_BUDGET_MVP, GUARD_BUDGET_MVP_AUTH,
+			   GuardSpawnerScript.GUARD_BUDGET_TIER2, GUARD_BUDGET_TIER2_AUTH, placed])
+
+
+## Reverse-assertion surface (N-11/N-12): hand in a guard count + tier and get
+## the emitted warning ids back, so a GUT test can prove an over-budget count
+## really produces [WARN][guard-instance-budget] instead of the scan rotting
+## green. Mirrors scan_interactable_count / scan_slot_size.
+func scan_guard_budget(count: int, for_tier: int) -> PackedStringArray:
+	_captured = PackedStringArray()
+	var cap: int = GUARD_BUDGET_TIER2_AUTH if for_tier == GuardSpawnerScript.Tier.TIER2 else GUARD_BUDGET_MVP_AUTH
+	for w in GuardSpawnerScript.budget_warnings(count, for_tier):
+		_warn(w, "active guards %d > cap %d" % [count, cap], "injected count (reverse-assert surface)")
+	return _captured
+
+
+func _count_guard_script_refs(tscn_path: String) -> int:
+	var txt := FileAccess.get_file_as_string(tscn_path)
+	if txt == "":
+		return 0
+	var count := 0
+	for line in txt.split("\n"):
+		# A scene that drops a GuardBrain (patrol_ai.gd) node directly is the
+		# only static way to pre-place a guard; count those references.
+		if "ext_resource" in line and "src/game/patrol_ai.gd" in line:
+			count += 1
+	return count
 
 
 func _count_interactable_script_refs(tscn_path: String) -> int:

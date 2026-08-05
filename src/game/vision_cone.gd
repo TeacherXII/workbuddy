@@ -18,6 +18,10 @@ extends Node
 # The real-time 10Hz tick (ADR-002 / G-03) and the Sprint 0 visibility formula are
 # unchanged.
 
+# ★ Sprint 3 Batch A (E08-S7): these stay `const` — the STANDARD cone. A guard
+# variant supplies its own geometry through a GuardVariantParams overlay (see
+# set_variant_params below), it never rewrites these. Same FLAG-B discipline as
+# patrol_ai.gd's frozen thresholds.
 const HALF_ANGLE_DEG := 35.0
 const RANGE := 14.0
 const TICK_HZ := 10.0
@@ -52,6 +56,11 @@ var _readability_boost := false
 # so naming its type here would be a cyclic class_name reference. Null by
 # default -> the cone behaves exactly as it did in Sprint 1.
 var _smoke: RefCounted = null
+# E08-S7 guard variant overlay. null == STANDARD, and every accessor below falls
+# back to the frozen class constants in that case, so an un-configured cone is
+# byte-for-byte the Sprint 1/2 cone. Injected by GuardBrain, which owns the
+# variant (a cone never picks its own).
+var _variant: GuardVariantParams = null
 
 signal vision_stimulus(guard_id: int, target: Node, visibility: float)
 signal vision_looming(guard_id: int)
@@ -91,6 +100,37 @@ func smoke_multiplier_at(target: Vector3) -> float:
 	return clampf(float(_smoke.smoke_factor_at(target)), 0.0, 1.0)
 
 
+# --- E08-S7: guard variant overlay (range / half-angle / dark floor) --------
+# Passing null detaches the overlay and restores the STANDARD constants.
+func set_variant_params(p: GuardVariantParams) -> void:
+	_variant = p
+
+
+## Cone radius in metres for THIS guard. Hound = 11m (GDD §9.2).
+func effective_range() -> float:
+	return _variant.cone_range_m if _variant != null else RANGE
+
+
+## Cone HALF angle in degrees for THIS guard. Hound = 30deg (GDD §9.2).
+func effective_half_angle_deg() -> float:
+	return _variant.cone_angle_deg if _variant != null else HALF_ANGLE_DEG
+
+
+## Light sensitivity under this guard's dark floor (GDD §9.3).
+##
+## For a STANDARD guard — overlay absent, or present with the default 0.20 floor
+## — this is arithmetically identical to LightModel.light_sensitivity(), so
+## standard guards keep reading 0.0 in shadow. Only the sentinel's lower floor
+## (0.05) changes the answer, which is the entire mechanic: shadow stops being a
+## free safe zone in a sentinel's patrol.
+func effective_light_sensitivity(level: float) -> float:
+	if _variant != null:
+		return _variant.light_sensitivity(level)
+	if _light != null:
+		return _light.light_sensitivity(level)
+	return 1.0
+
+
 func set_observer(pos: Vector3, forward: Vector3) -> void:
 	observer_pos = pos
 	observer_forward = forward
@@ -123,11 +163,11 @@ func cone_alpha_floor() -> float:
 func compute_visibility(target: Vector3, visibility_multiplier := 1.0) -> float:
 	var to_t := target - observer_pos
 	var dist := to_t.length()
-	if dist > RANGE:
+	if dist > effective_range():
 		return 0.0
 	var dir := to_t.normalized()
 	var ang := rad_to_deg(observer_forward.angle_to(dir))
-	if ang > HALF_ANGLE_DEG:
+	if ang > effective_half_angle_deg():
 		return 0.0
 	var los := true
 	if _query != null:
@@ -139,7 +179,10 @@ func compute_visibility(target: Vector3, visibility_multiplier := 1.0) -> float:
 		lvl = _light.get_light_level(target)
 	var sens := 1.0
 	if _light != null:
-		sens = _light.light_sensitivity(lvl)
+		# E08-S7: routed through the overlay so the sentinel's dark floor applies.
+		# Still gated on `_light != null` so the "no light model" case keeps its
+		# Sprint 0 answer of 1.0 exactly.
+		sens = effective_light_sensitivity(lvl)
 	var m := clampf(visibility_multiplier, 0.0, 1.0)
 	var smoke := smoke_multiplier_at(target)
 	return clampf(sens * m * smoke, 0.0, 1.0)
@@ -151,11 +194,16 @@ func compute_visibility(target: Vector3, visibility_multiplier := 1.0) -> float:
 func is_in_edge_band(target: Vector3) -> bool:
 	var to_t := target - observer_pos
 	var dist := to_t.length()
-	if dist > RANGE:
+	if dist > effective_range():
 		return false
 	var dir := to_t.normalized()
 	var ang := rad_to_deg(observer_forward.angle_to(dir))
-	return ang >= (HALF_ANGLE_DEG - EDGE_MARGIN_DEG) and ang <= HALF_ANGLE_DEG
+	# E08-S7: the rim tell must track the ACTUAL cone. A hound whose cone is
+	# 30deg but whose warning band still sat at 27..35deg would promise "about to
+	# be swept" outside the cone and stay silent inside it — a tell that lies is
+	# worse than no tell (C-05 readability).
+	var half := effective_half_angle_deg()
+	return ang >= (half - EDGE_MARGIN_DEG) and ang <= half
 
 
 # One real-time tick: compute visibility + emit the edge tell. Extracted so
