@@ -77,3 +77,48 @@ class GuardBrain:                 # L3
 - **Tier2（期望）**：守卫变体——循声猎犬（听觉优先，降视觉权重）、暗视哨兵（暗处仍可见，降 L 阈值）；复用 FSM+参数覆盖（architecture §3.4），不新增系统。
 - **Tier3（拓展）**：环境处决/机关谜题（组合 ⑦ 道具触发）；仍复用 FSM，不新增系统。
 - **范围纪律**：本系统即概念 §3⑤；变体以参数/权重覆盖实现（architecture §3.4），未新增平行机制族。
+
+---
+
+## 9. Sprint 2 守卫变体（E08）
+> 本 § 将 ⑥ 的 Tier2 变体落地为**参数/权重覆盖**（architecture §3.4），**零新事件词汇**——变体仅覆写 `GuardBrain` 的常量与 ③④ 采样偏好，复用既有 `suspicion_changed`/`guard_fsm_changed`/`exposure_detected`。这是一致性评审的利好点：变体不污染事件词汇表（见 `consistency-review.md` §5）。
+
+### 9.1 变体覆盖机制
+```gdscript
+enum GuardVariant { STANDARD, SOUND_HOUND, DARK_SENTINEL }   # ⑥ 内部枚举
+
+class GuardBrain:                 # L3，参数来自 variant overlay
+    var variant: GuardVariant = STANDARD
+    # 以下常量可被 variant overlay 覆写（默认值=STANDARD）
+    var KV: float = 35.0          # 视觉权重
+    var KS: float = 15.0          # 声音权重
+    var vision_radius: float = 14.0
+    var vision_angle_deg: float = 35.0
+    var vision_light_floor: float = 0.0   # 暗处可见度地板（哨兵↓）
+    var sound_detect_radius_mult: float = 1.0   # 听觉半径倍率（猎犬↑）
+    # 阈值/衰减/宽限与 STANDARD 一致：THR_SUSP=25, THR_ALERT=60, THR_RETURN=10, DECAY=8, GRACE_RT=1.2, DECISION_HZ=10
+```
+- 变体在 `GuardBrain._init(variant)` 时套用 overlay；运行时不可切换（关卡布置决定）。
+- HUD（⑧）需知变体以渲染差异化剪影：经既有 `guard_fsm_changed` 携带 `variant` 快照，或新增只读 `guard_spawned(guard_id, variant)`（登记于 `consistency-review.md` §5）。**不**新增 FSM 状态/事件语义。
+
+### 9.2 变体参数表
+| 参数 | STANDARD | 循声猎犬 SOUND_HOUND | 暗视哨兵 DARK_SENTINEL | 含义 |
+| --- | --- | --- | --- | --- |
+| `KV`（视觉权重） | 35 | **15**（↓） | 35 | 视觉刺激对可疑度贡献 |
+| `KS`（声音权重） | 15 | **30**（↑×2） | 15 | 声音刺激对可疑度贡献 |
+| `vision_radius` | 14m | **11m**（↓） | 14m | 视野锥半径 |
+| `vision_angle_deg` | 35° | **30°**（↓） | 35° | 视野锥半角 |
+| `vision_light_floor` | 0.0 | 0.0 | **0.05**（↓地板） | 暗处最低可见度（见 9.3） |
+| `sound_detect_radius_mult` | 1.0 | **1.6**（↑） | 1.0 | ④ 声音检测半径倍率 |
+| 阈值 25/60/10 · DECAY 8 · GRACE 1.2s · ≤10Hz | 同 | 同 | 同 | 升级/宽限逻辑不变 |
+
+### 9.3 行为语义
+- **循声猎犬（听觉优先）**：`KV` 降至 15、`KS` 升至 30、听觉半径 ×1.6 → 对脚步/诱饵声极敏感，但锥略缩（11m/30°）对静默阴影绕行容忍度更高。**设计意图**：逼迫玩家用 ④ 声音管理（垫步/熄灯/诱饵调虎）而非纯视觉规避。
+- **暗视哨兵（暗处仍可见）**：`vision_light_floor = 0.05` 改写 ③ `vision_vis` 计算——③ 公式 `vis = clamp((L - L_DARK_FLOOR)/(L_BRIGHT - L_DARK_FLOOR), 0, 1)` 中，哨兵取 `L_DARK_FLOOR = vision_light_floor`（0.05 < 标准 0.20 等效地板），使在 `L_DARK=0.20` 阴影里仍读到 `vis≈0.5`（标准守卫≈0）。**设计意图**：阴影不再是哨兵区的「免费安全区」，玩家须靠 ⑦ 道具（熄灯/烟雾）或路径规划破局。
+
+### 9.4 边界（变体）
+- **G-01** 同区活动守卫仍 ≤8（MVP）/≤16（Tier2），变体不破上限。
+- **G-04** FSM 决策仍 ≤10Hz（节流不变）。
+- **V-02** 暴露脉动仍 ≤2Hz。
+- **零新事件**：仅参数/权重覆盖，复用全部既有信号（一致性利好，见 `consistency-review.md` §5）。
+- **无新系统**：变体是 ⑥ 的数据维度，非平行机制族（范围纪律保持）。

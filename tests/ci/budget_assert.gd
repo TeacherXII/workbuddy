@@ -10,9 +10,19 @@
 # (RefCounted) so it is directly unit-testable (see test_budget_assert.gd).
 # This file only drives that logic for headless CI and quits 0.
 
+#
+# [Sprint 2 · Batch A] Two save-layer assertions joined the WARN-ONLY roster:
+#   @ci:save-schema-has-version  (SAV-S1) — `version` present, FIRST field, == 2
+#   @ci:save-size-budget         (SAV-S2) — single slot JSON <= 32 KB
+# Both stay WARN-ONLY (exit 0 unchanged). Their scan logic lives in
+# budget_checks.gd like every other check; this entry point is what wires the
+# LIVE user:// save directory into the size scan (unit tests leave it empty so
+# they never read a developer's real slots).
+
 extends SceneTree
 
 const BudgetChecks := preload("res://tests/ci/budget_checks.gd")
+const SaveManagerScript := preload("res://src/core/save_manager.gd")
 
 const EXIT_OK := 0
 
@@ -21,6 +31,8 @@ func _initialize() -> void:
 	prints("[CI:budget] ===== ASHEN STEP budget + Sprint0 exit gate (warn-only) =====")
 	_report_smoke_requirement()      # Exit criterion ⑤ (epic-overview §3)
 	var bc := BudgetChecks.new()
+	# @ci:save-size-budget: measure the real slots on disk, if any exist.
+	bc.save_scan_dir = SaveManagerScript.SAVE_DIR
 	var warns := bc.run("res://")
 	if warns.is_empty():
 		prints("[CI:budget] All scans clean (no [WARN] emitted).")

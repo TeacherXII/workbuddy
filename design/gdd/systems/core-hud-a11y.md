@@ -71,3 +71,54 @@ class A11ySettings:                # L2，持久化
 - **Tier2（期望）**：完整可访问性包——色盲模式、时间缩放、屏震关、雾选项、动态模糊关、文本缩放、字幕（概念 §5 Tier2）。
 - **Tier3（拓展）**：照片模式取景 UI；「最干净通关」排行榜 UI；复用 HUD 框架，不新增系统。
 - **范围纪律**：本系统即概念 §5「核心 HUD」；可访问性为 Tier2 显式要求，未新增平行机制族。
+
+---
+
+## 9. Sprint 2 Tier2 完整 a11y 包（E09）
+> 本 § 将 ⑧ 的设置/表现层从「骨架（E01-S6 接口+默认值）」升级为**完整可访问性包**：补全 `A11ySettings` 数据、落地设置菜单 UI 规格、接线全部表现效果、并接入 `save-system.md` 偏好持久化。所有开关对齐 `control-manifest` C-01~C-07 / X-01/X-02 / V-01~V-06 / T-01/T-02。
+
+### 9.1 A11ySettings 数据补全（L2）
+```gdscript
+enum ColorBlindMode { OFF, PROTAN, DEUTAN, TRITAN }   # 完整枚举（原仅 bool）
+enum FogOpt { FULL, REDUCED, OFF }
+
+class A11ySettings:                # L2，持久化经 SaveManager
+    var color_blind_mode: ColorBlindMode = OFF        # C-05/C-06
+    var time_scale_user: float = 0.25                 # [0.1, 1.0]（T-01），默认 0.25
+    var screen_shake: bool = false                    # V-03 默认关
+    var fog_option: FogOpt = FULL                     # V-04
+    var motion_blur: bool = false                     # V-05 默认关
+    var text_scale: float = 1.0                       # [1.0, 1.5]（X-01）
+    var subtitles: bool = true                        # X-02（原缺失字段，新增）
+    # 持久化：save()/load() 改调 SaveManager.save_prefs("a11y", dict)/load_prefs("a11y")
+```
+- `subtitles` 字段原缺失（a11y_settings.gd 仅接口骨架），本 Sprint 补全并接入。
+- `color_blind_mode` 从 `bool` 升级为四态枚举（PROTAN/DEUTAN/TRITAN 对应三色盲类型，§9.3 配色）。
+
+### 9.2 设置菜单 UI 规格（暂停态，⑧ 管辖）
+| 分组 | 控件 | 范围/默认 | 对齐 |
+| --- | --- | --- | --- |
+| 视觉·色觉 | 色盲模式下拉 | OFF/PROTAN/DEUTAN/TRITAN | C-05/C-06 |
+| 节奏·时间 | 凝神时间滑杆 | 0.1–1.0，默认 0.25 | T-01/T-02 |
+| 舒适·眩晕 | 屏震开关 | 默认关 | V-03 |
+| 舒适·雾 | 雾选项 | FULL/REDUCED/OFF | V-04 |
+| 舒适·动态模糊 | 动态模糊开关 | 默认关 | V-05 |
+| 文本 | 文本缩放滑杆 | 100–150%，默认 100% | X-01 |
+| 字幕 | 字幕开关 | 默认开 | X-02 |
+- 控件不抢操作焦点（§5）；键盘/手柄可达，焦点环 `#C8862F`（C-06）。
+
+### 9.3 HUD 表现接线
+- **色盲模式（C-05/C-06/C-07）**：开启后暴露 `#7A2E2E`→`#C8862F` 高亮 + 图标；机制信息亮度+形状+图标三重编码；按类型映射（PROTAN/DEUTAN/TRITAN 各有安全区分配色，不依赖色相 alone）。光池 vs 阴影靠亮度边界（C-04）。
+- **时间缩放（T-01/T-02）**：滑杆写入 `A11ySettings.time_scale_user`，钳 [0.1,1.0]，联动 ②（默认 0.25）。
+- **眩晕/光敏（V-01~V-06）**：禁 >3Hz 频闪（V-01，着色器约束）；暴露脉动 ≤2Hz（V-02）；屏震默认关、可开、幅度可调（V-03）；雾选项（V-04）；动态模糊默认关（V-05）；转场 ease（V-06）。
+- **文本/字幕（X-01/X-02）**：文本 100–150% 不破版（hud_slice 第 322 行注释「Sprint 2 100-150% text scale drops in without relayout」）；关键音景字幕带说话者标识 + 图标（X-02）。`subtitles` 关则抑制环境音景字幕。
+- **对比度（C-01/C-02/C-03）**：正文 ≥4.5:1、关键指示 ≥7:1、世界可读要素 ≥3:1，沿用 §6 硬约束。
+
+### 9.4 存档 UI（调用 SaveManager）
+- 设置菜单「存档/读档」入口 → `SaveManager.write_slot` / `read_slot`（见 `save-system.md` §4/§5）。偏好变更即时 `save_prefs("a11y", ...)` 落盘，跨会话保留。
+- 读档完成：`load_completed` → ⑧ 淡入 + 应用 `A11ySettings` 全部开关到运行时（着色器/时间/雾/模糊/缩放）。
+
+### 9.5 边界（Tier2 包）
+- 全部对齐 C-01~C-07、X-01/X-02、V-01~V-06、T-01/T-02；美术 §9 全节。
+- 不新增事件词汇：a11y 开关变更经 L2 `A11ySettings` 直接被玩法/着色器读取，无需事件总线广播（与 §4「仅 UI 交互→L2 持久化」一致）。
+- 表现成本归各自系统预算（③锥/④环/⑤光池/着色器），HUD 2D 叠加成本可忽略。

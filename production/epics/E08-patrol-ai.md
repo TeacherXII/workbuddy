@@ -19,6 +19,8 @@
 
 ## 关键 Story 列表
 
+> **Sprint 2 滑期标注（主理人裁决 1）**：守卫变体相关 Story **E08-S7 / E08-S9 / E08-S10 滑到 Sprint 3**（详见 `production/sprints/sprint2-stories.md` §2 S3-A）。其余 E08-S1~S6、E08-S8 留 Sprint 1/Sprint 2 不变。变体参数覆盖（猎犬 KV15/KS30/感知半径×1.6/锥 11m·30°、哨兵 vision_light_floor=0.05）仍复用 `GuardBrain`，不新增系统。
+
 ### E08-S1 · 作为（系统）我要（守卫按五态 FSM 运行）以便（暴露是梯度非瞬死）
 **Sprint 0**：否（Sprint 1；Sprint 0 仅占位，由 E05 单锥静态检测驱动）
 **验收**
@@ -50,7 +52,7 @@
 - When 守卫 ALERT 且玩家持续可见。
 - Then 累计真实时间达 1.2s → 发 `exposure_detected(guard_id, target)` → 软失败（经 E01 SaveManager 检查点重生）；宽限期内玩家断 LOS/熄灯/诱饵降 S 可自救。
 - Then 断言：ALERT+可见 1.0s 不触发，1.2s 触发（见 `tests/unit/test_step_commit.gd::test_exposure_grace_1_2s_triggers_soft_fail`）。
-**关联**：patrol-ai §2/§3；consistency-review C4；E01-S5（SaveManager）；control-manifest（无编号，属 GDD ⑥）。
+**关联**：patrol-ai §2/§3；consistency-review C4；E11（SaveManager）；control-manifest（无编号，属 GDD ⑥）。
 
 ### E08-S5 · 作为（系统）我要（A* 仅状态转换触发并缓存）以便（寻路非逐帧）
 **Sprint 0**：否（Sprint 1）
@@ -69,7 +71,7 @@
 **关联**：system-breakdown §2；patrol-ai §4；vision-cone（guard_transform_dirty）。
 
 ### E08-S7 · 作为（设计）我要（守卫变体猎犬/哨兵）以便（Tier2 增加解法维度）
-**Sprint 0**：否（Sprint 2）
+**Sprint 2**：否 → **Sprint 3**：滑期（主理人裁决 1，守卫变体延期）
 **验收**
 - Given patrol-ai §8「循声猎犬（听觉优先，降视觉权重）、暗视哨兵（暗处仍可见，降 L 阈值）；复用 FSM+参数覆盖（architecture §3.4）不新增系统」。
 - When 变体实例化。
@@ -84,6 +86,22 @@
 - Then 姿态/提灯状态传达 FSM；不依赖色相（C-05）；可疑度条图标+数字+亮度（C-02）。
 **关联**：patrol-ai §2/§5/§7；art-bible §4.1；control-manifest C-02/C-05/C-07。
 
+### E08-S9 · 作为（设计）我要（变体实例化与 entity-inventory 类型绑定）以便（Tier2 由资产驱动）
+**Sprint 2**：否 → **Sprint 3**：滑期（主理人裁决 1）
+**验收**
+- Given 4 类角色（玩家 + 标准守卫 + 2 Tier2 变体）；变体由 entity-inventory 类型字段驱动参数覆盖。
+- When 关卡加载变体守卫。
+- Then 实例化时按类型套用参数覆盖（不新增系统/机制族）；计入 G-01 守卫预算。
+**关联**：patrol-ai §8；entity-inventory（守卫变体实体表）；control-manifest G-01。
+
+### E08-S10 · 作为（系统）我要（变体 FSM 合并验证）以便（基类阈值契约不被污染）
+**Sprint 2**：否 → **Sprint 3**：滑期（主理人裁决 1）
+**验收**
+- Given 参数覆盖若实现为运行时 mut 实例常量，可能破坏 Sprint 1 已锁阈值测试（THR_SUSP=25/THR_ALERT=60/THR_RETURN=10/DECISION_HZ=10）。
+- When 变体运行五态 FSM + 连续可疑度 + 决策 ≤10Hz。
+- Then 基类阈值契约不被覆盖污染（用参数对象而非改类常量）；标准守卫与变体阈值一致（合并测试）。
+**关联**：patrol-ai §2；control-manifest G-04/C-02；架构风险 FLAG-B（sprint2-stories.md §5）。
+
 ## 依赖
 E05（vision_stimulus）、E06（sound_emitted）、E02（tick 真实时间）、E01（NavServer/Grid/EventBus/SaveManager）。发出 `suspicion_changed`/`guard_fsm_changed`/`exposure_detected`/`guard_transform_dirty` → E09/E05。被依赖：E09（HUD/软重开）、E05（transform 重算）。
 
@@ -97,7 +115,7 @@ E05（vision_stimulus）、E06（sound_emitted）、E02（tick 真实时间）�
 ## 风险
 - **R-AI-1**：暴露瞬死破坏 deliberate 手感。缓解：E08-S4 1.2s 宽限 + 软失败（概念 §3⑤）。
 - **R-AI-2**：tick 若随 time_scale → 慢放下 AI 变慢失平衡。缓解：E08-S3 真实时间 tick（ADR-002/003）。
-- **R-AI-3**：检查点粒度不当 → 重生挫败。缓解：E01-S5 SaveManager + C4 待与程基岩按 L2 落地。
+- **R-AI-3**：检查点粒度不当 → 重生挫败。缓解：E11 SaveManager + C4 待与程基岩按 L2 落地。
 
 ## 与架构 + 控制清单勾稽
 - 架构 §2（L3 AI）、§3.4（FSM 决策 5–10Hz、A* 缓存、变体参数覆盖）、§4（守卫 8/16、FSM ≤10Hz、射线随 E05）。

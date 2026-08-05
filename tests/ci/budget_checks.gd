@@ -28,6 +28,9 @@ extends RefCounted
 
 const HudColors := preload("res://src/ui/hud_colors.gd")
 const LightModel := preload("res://src/game/light_model.gd")
+# [Sprint 2 · Batch A] SAV-S1/S2 static budgets. Only STATIC members are touched
+# (constants + static funcs) — this file never instantiates the L2 service.
+const SaveManagerScript := preload("res://src/core/save_manager.gd")
 
 # R-02: dynamic point lights per screen (MVP<=12 / Tier2<=32).
 const LIGHT_BUDGET_MVP := 12
@@ -49,6 +52,11 @@ const C02_CARRIERS := ["HUD_COLOR_CARRIER"]
 var _captured: PackedStringArray = []
 var _scan_root := "res://"
 
+# @ci:save-size-budget — directory of REAL on-disk slots to measure. Empty by
+# default so unit tests stay hermetic (they must never read a developer's real
+# user://saves/). tests/ci/budget_assert.gd wires the live path for headless CI.
+var save_scan_dir := ""
+
 
 # Run every real scan against `scan_root` and return the emitted warning ids.
 func run(scan_root := "res://") -> PackedStringArray:
@@ -59,6 +67,8 @@ func run(scan_root := "res://") -> PackedStringArray:
 	_check_lightmap()
 	_check_vignette_ease()
 	_check_contrast_c02()
+	_check_save_schema()
+	_check_save_size()
 	return _captured
 
 
@@ -130,6 +140,112 @@ func _check_contrast_c02() -> void:
 			_warn("C-02", "%s contrast < %.1f:1" % [name, CONTRAST_MIN_C02], "%.2f:1" % r)
 		else:
 			prints("[CI:budget][OK][C-02] %s contrast %.2f:1 (>= %.1f:1)" % [name, r, CONTRAST_MIN_C02])
+
+
+# --- @ci:save-schema-has-version (SAV-S1, WARN-ONLY) ------------------------
+# FLAG-A mitigation ①: `version` must exist, be the FIRST field on the wire, and
+# equal SAVE_VERSION. This is a REAL scan of the real serializer — it encodes a
+# slot exactly the way SaveManager.write_slot() does and inspects the result —
+# not a stub (N-11).
+func _check_save_schema() -> void:
+	var before := _captured.size()
+
+	# ① The declared wire order constant.
+	var order: Array = SaveManagerScript.SLOT_FIELD_ORDER
+	if order.is_empty() or str(order[0]) != "version":
+		var head := str(order[0]) if not order.is_empty() else "<empty>"
+		_warn("save-schema-has-version", "SLOT_FIELD_ORDER[0] is not `version`",
+			"save_manager.gd -> first declared field is `%s`" % head)
+
+	# ② The bytes the serializer actually produces.
+	var slot: Dictionary = SaveManagerScript.make_slot(
+		SaveManagerScript.CHECKPOINT_SLOT_ID, true, {})
+	_scan_slot_schema(SaveManagerScript.encode_slot(slot), "save_manager.gd::encode_slot")
+
+	if _captured.size() == before:
+		prints("[CI:budget][OK][save-schema-has-version] `version` is field #0 and == %d"
+			% SaveManagerScript.SAVE_VERSION)
+
+
+## Reverse-assertion surface (N-11/N-12): feed an arbitrary slot dictionary and
+## get the emitted warning ids back, so a GUT test can prove a real violation
+## produces a [WARN] instead of rotting green.
+func scan_slot_schema(slot: Dictionary, source := "<inline>") -> PackedStringArray:
+	_captured = PackedStringArray()
+	_scan_slot_schema(slot, source)
+	return _captured
+
+
+func _scan_slot_schema(slot: Dictionary, source: String) -> void:
+	if not slot.has("version"):
+		_warn("save-schema-has-version", "slot has no `version` field", source)
+		return
+	var keys: Array = slot.keys()
+	var head := str(keys[0]) if not keys.is_empty() else "<empty>"
+	if head != "version":
+		_warn("save-schema-has-version", "`version` is not the first field",
+			"%s -> first key is `%s`" % [source, head])
+		return
+	var v := int(slot["version"])
+	if v != SaveManagerScript.SAVE_VERSION:
+		_warn("save-schema-has-version",
+			"`version` != SAVE_VERSION (%d)" % SaveManagerScript.SAVE_VERSION,
+			"%s -> %d" % [source, v])
+
+
+# --- @ci:save-size-budget (SAV-S2, WARN-ONLY) -------------------------------
+# GDD §6: a single slot JSON must stay <= 32 KB (diff state only). Scans the
+# serializer's own output plus any real slot files under `save_scan_dir`.
+func _check_save_size() -> void:
+	var before := _captured.size()
+	var budget: int = SaveManagerScript.SLOT_SIZE_BUDGET_BYTES
+
+	var baseline: String = SaveManagerScript.slot_to_json(
+		SaveManagerScript.make_slot(SaveManagerScript.CHECKPOINT_SLOT_ID, true, {}))
+	_scan_slot_size(baseline.to_utf8_buffer().size(), "save_manager.gd::default slot")
+
+	var scanned := 0
+	for f in _list_slot_files():
+		var txt := FileAccess.get_file_as_string(f)
+		if txt == "":
+			continue
+		scanned += 1
+		_scan_slot_size(txt.to_utf8_buffer().size(), f)
+
+	if _captured.size() == before:
+		prints("[CI:budget][OK][save-size-budget] %d on-disk slot(s) scanned; all <= %d bytes"
+			% [scanned, budget])
+
+
+## Reverse-assertion surface: assert a byte count against the budget directly.
+func scan_slot_size(size_bytes: int, source := "<inline>") -> PackedStringArray:
+	_captured = PackedStringArray()
+	_scan_slot_size(size_bytes, source)
+	return _captured
+
+
+func _scan_slot_size(size_bytes: int, source: String) -> void:
+	var budget: int = SaveManagerScript.SLOT_SIZE_BUDGET_BYTES
+	if size_bytes > budget:
+		_warn("save-size-budget", "slot JSON > %d bytes" % budget,
+			"%s -> %d bytes" % [source, size_bytes])
+
+
+func _list_slot_files() -> PackedStringArray:
+	var out := PackedStringArray()
+	if save_scan_dir == "":
+		return out
+	var d := DirAccess.open(save_scan_dir)
+	if d == null:
+		return out
+	d.list_dir_begin()
+	var name := d.get_next()
+	while name != "":
+		if (not d.current_is_dir()) and name.begins_with("slot_") and name.ends_with(".json"):
+			out.append(save_scan_dir.path_join(name))
+		name = d.get_next()
+	d.list_dir_end()
+	return out
 
 
 func _c02_fg(name: String) -> Color:

@@ -129,6 +129,7 @@ func _ready() -> void:
 	# If the guard is only pushed to SoundPropagator once it moves, a stationary
 	# guard is invisible to emit()'s distance filter and E06-S5 dies silently.
 	_register_with_sound()
+	set_checkpoint_sink(SaveManager.restore_checkpoint)  # D9 seam (1) CLOSED — SAV-S3, FLAG-A(a) zero-arg
 
 
 # --- Dependency injection (mirrors vision_cone.gd / sound_propagation.gd) ----
