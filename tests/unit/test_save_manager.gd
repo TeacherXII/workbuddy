@@ -530,8 +530,7 @@ func test_version_mismatch_rejected_not_crash() -> void:
 	# NOTE: this test intentionally triggers push_error() — the ERROR line in the
 	# log is the proof of「绝不静默吞错」, not a failure.
 	var path: String = _sm.slot_path(0)
-	var stale := "{\"version\":1,\"slot_id\":0,\"is_checkpoint\":false," \
-		+ "\"timestamp\":1.0,\"checkpoint_id\":\"v1_legacy\"}"
+	var stale := "{\"version\":1,\"slot_id\":0,\"is_checkpoint\":false,\"timestamp\":1.0,\"checkpoint_id\":\"v1_legacy\"}"
 	_write_raw(path, stale)
 
 	var slot: Dictionary = _sm.read_slot(0)
