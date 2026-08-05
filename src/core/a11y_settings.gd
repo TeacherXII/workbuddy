@@ -8,7 +8,8 @@ extends Node
 # (V-05), fog on (V-04 base cap, no OFF in Basic), text_scale 1.0 (X-01),
 # color_blind off (C-06), time_scale_min 0.1 (T-02 lower clamp).
 #
-# [Sprint 2 · Batch A / SAV-S4] Persistence NO LONGER goes through ConfigFile.
+# [Sprint 2 · Batch A / SAV-S4] Persistence NO LONGER goes through the legacy
+# Sprint 0 .cfg config-file API.
 # save()/load() now delegate to the L2 SaveManager preference store
 # (user://prefs.json) via the FIELD-AGNOSTIC API save_prefs(section, dict) /
 # load_prefs(section). The split of responsibilities is deliberate:

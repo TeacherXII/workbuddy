@@ -159,9 +159,10 @@ func get_prefs_path() -> String:
 # =============================================================================
 # SAV-S1 — slot schema. Pure/static so CI can scan it without a running game.
 # =============================================================================
-## Build an in-memory (TYPED) slot. `version` is inserted FIRST; Dictionary
-## preserves insertion order and JSON.stringify walks that order, so `version`
-## is literally the first key on disk. Unknown keys in `data` are DROPPED —
+## Build an in-memory (TYPED) slot. `version` is inserted FIRST and Dictionary
+## preserves insertion order — but that alone is NOT enough to put `version`
+## first on disk: the encoder must also be told not to sort (see slot_to_json).
+## Unknown keys in `data` are DROPPED —
 ## only the 11 GDD fields ever reach the wire ("世界差异态" discipline, §3).
 static func make_slot(slot_id: int, is_checkpoint: bool, data: Dictionary) -> Dictionary:
 	var slot: Dictionary = {}
@@ -213,8 +214,13 @@ static func decode_slot(raw: Dictionary) -> Dictionary:
 	return slot
 
 
+## ★ `sort_keys` MUST stay false. Godot's JSON.stringify() defaults it to TRUE,
+## which re-orders the object ALPHABETICALLY on the wire ("a11y_prefs" first) and
+## silently breaks the version-first invariant even though the Dictionary itself
+## is correctly ordered. Passing false makes the encoder walk insertion order,
+## so the bytes begin with {"version":2. Do not drop these two arguments.
 static func slot_to_json(slot: Dictionary) -> String:
-	return JSON.stringify(encode_slot(slot))
+	return JSON.stringify(encode_slot(slot), "", false)
 
 
 static func is_valid_slot_id(slot_id: int) -> bool:
@@ -478,7 +484,9 @@ func _write_prefs() -> void:
 		push_error("SaveManager: cannot open %s for writing (err=%d)"
 			% [_prefs_path, FileAccess.get_open_error()])
 		return
-	f.store_string(JSON.stringify(out))
+	# sort_keys=false for the same reason as slot_to_json(): the default (true)
+	# would sort sections alphabetically and push `version` past "a11y"/"audio".
+	f.store_string(JSON.stringify(out, "", false))
 	f.close()
 
 
