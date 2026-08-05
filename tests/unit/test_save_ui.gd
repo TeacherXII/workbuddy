@@ -729,9 +729,18 @@ func test_focus_ring_and_danger_substitute_survive_a_hue_collapse() -> void:
 # =============================================================================
 ## ★ E01-S9 vocabulary freeze. A whole new UI surface, zero new signals.
 func test_screen_declares_no_signals_and_subscribes_to_exactly_three() -> void:
-	assert_eq(SaveSlotsScreenScript.get_script_signal_list().size(), 0,
+	# The two locals are REQUIRED, not stylistic. A `const X = preload(...)`
+	# reference is resolved by the parser against the SCRIPT'S OWN class
+	# namespace, so `X.get_script_signal_list()` is a parse error — the member
+	# is not declared in that .gd file. (`X.new()` works only because the
+	# constructor is special-cased.) Binding to a `Script`-typed variable turns
+	# it back into an ordinary object reference, so the call resolves at runtime
+	# against Script's real method table.
+	var screen_script: Script = SaveSlotsScreenScript
+	var model_script: Script = SaveUiModelScript
+	assert_eq(screen_script.get_script_signal_list().size(), 0,
 		"the save screen must not mint a signal of its own")
-	assert_eq(SaveUiModelScript.get_script_signal_list().size(), 0,
+	assert_eq(model_script.get_script_signal_list().size(), 0,
 		"and neither may the model — it reports through return values")
 
 	var s := _make_screen()
