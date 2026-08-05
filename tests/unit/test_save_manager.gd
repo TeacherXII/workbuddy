@@ -461,14 +461,16 @@ func test_prefs_delegation_roundtrip() -> void:
 	assert_true(a11y_src.contains("save_prefs") and a11y_src.contains("load_prefs"),
 		"A11ySettings must persist through the SaveManager prefs API")
 
-	var a := autofree(A11ySettings.new())
+	var a := A11ySettings.new()
+	autofree(a)
 	a.set_save_manager(_sm)
 	a.color_blind_mode = "DEUTERANO"
 	a.text_scale = 1.25
 	a.screen_shake = true
 	a.save()
 
-	var b := autofree(A11ySettings.new())
+	var b := A11ySettings.new()
+	autofree(b)
 	b.set_save_manager(_sm)
 	b.load()
 	assert_eq(b.color_blind_mode, "DEUTERANO")
@@ -477,7 +479,8 @@ func test_prefs_delegation_roundtrip() -> void:
 
 	# ④ Missing fields fall back to defaults (forward/backward compatible).
 	_sm.save_prefs("a11y", {"text_scale": 1.5})
-	var c := autofree(A11ySettings.new())
+	var c := A11ySettings.new()
+	autofree(c)
 	c.set_save_manager(_sm)
 	c.load()
 	assert_almost_eq(c.text_scale, 1.5, 0.0001)
