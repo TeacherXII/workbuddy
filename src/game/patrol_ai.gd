@@ -24,14 +24,24 @@ extends Node
 const EventBus = preload("res://src/core/event_bus.gd")
 
 # ── GDD-locked constants (patrol-ai §3 — values are frozen) ──────────────────
-const THR_SUSP := 25.0        # pts     upward threshold -> SUSPICIOUS
-const THR_ALERT := 60.0       # pts     upward threshold -> ALERT
-const THR_RETURN := 10.0      # pts     downward threshold -> RETURN
-const KV := 35.0              # pts/s   vision gain (x vision_vis in [0,1] x dt)
-const KS := 15.0              # pts/event  sound gain (x falloff; [D5] NOT x dt)
-const DECAY := 8.0            # pts/s   decay while unstimulated (x dt)
-const GRACE_RT := 1.2         # s (real) exposure grace
-const DECISION_HZ := 10.0     # Hz (real) G-04 ceiling
+#
+# ★ Sprint 3 Batch A (E08-S10 / FLAG-B) — these stay `const`. ★
+# Guard variants are implemented as a PARAMETER OBJECT (GuardVariantParams),
+# never by turning any of these into a runtime-mutable instance var. THR_SUSP /
+# THR_ALERT / THR_RETURN / DECISION_HZ are the locked FSM contract and are not
+# even representable in the overlay — GuardVariantParams has no field for them —
+# so a variant cannot pollute them, by construction rather than by convention.
+# KV / KS remain the STANDARD defaults, mirrored into
+# GuardVariantParams.STD_KV / STD_KS and drift-locked by
+# tests/unit/test_guard_variants.gd.
+const THR_SUSP := 25.0        # pts     upward threshold -> SUSPICIOUS  [FROZEN]
+const THR_ALERT := 60.0       # pts     upward threshold -> ALERT       [FROZEN]
+const THR_RETURN := 10.0      # pts     downward threshold -> RETURN    [FROZEN]
+const KV := 35.0              # pts/s   vision gain, STANDARD default (x vis x dt)
+const KS := 15.0              # pts/event  sound gain, STANDARD default ([D5] NOT x dt)
+const DECAY := 8.0            # pts/s   decay while unstimulated (x dt) [FROZEN]
+const GRACE_RT := 1.2         # s (real) exposure grace                 [FROZEN]
+const DECISION_HZ := 10.0     # Hz (real) G-04 ceiling                  [FROZEN]
 const TICK_DT := 0.1          # s       = 1.0 / DECISION_HZ (derived)
 
 # ── E06-S4 (Batch D) DECOY redirect [D12-A] ──────────────────────────────────
@@ -71,6 +81,13 @@ const POSTURE := {
 	EventBus.GuardState.SEARCH: "LANTERN_SWEEP",     # lantern sweeping side to side
 	EventBus.GuardState.RETURN: "RETURNING",         # heading home
 }
+
+# ── E08-S7/S9/S10 (Sprint 3 · Batch A) variant overlay ───────────────────────
+# The ONE piece of variant state on this class. Defaults to the STANDARD params,
+# so an un-configured GuardBrain behaves EXACTLY as it did in Sprint 1/2 (the
+# standard values are literal mirrors of the constants above, drift-locked by
+# test_guard_variants.gd). Never null — see set_variant_params.
+var _params: GuardVariantParams = GuardVariantParams.standard()
 
 # ── State (E08-S1) ───────────────────────────────────────────────────────────
 var guard_id: int = 1
@@ -163,12 +180,41 @@ func _register_with_sound() -> void:
 		_sound.register_guard(guard_id, _pos)
 
 
+# --- E08-S7 · variant overlay injection ------------------------------------
+# Applied at instantiation (GuardSpawner), never mid-life: GDD §9.1 makes the
+# variant a level-authoring decision, "运行时不可切换". Passing null restores the
+# STANDARD params rather than leaving a null to crash the 10Hz tick.
+func set_variant_params(params: GuardVariantParams) -> void:
+	_params = params if params != null else GuardVariantParams.standard()
+	# W2: a cone attached BEFORE the params must still receive them, otherwise
+	# the hound's 11m/30deg cone would depend on wiring order and silently stay
+	# 14m/35deg half the time.
+	_apply_params_to_cone()
+
+
+func get_variant_params() -> GuardVariantParams:
+	return _params
+
+
+func get_variant() -> int:
+	return _params.variant
+
+
 # W2: one VisionCone instance per guard, kept in sync with this brain's pose.
 func set_vision_cone(cone: VisionCone) -> void:
 	_cone = cone
 	if _cone != null:
 		_cone.guard_id = guard_id
 		_cone.set_observer(_pos, _forward())
+		_apply_params_to_cone()
+
+
+# The single seam where ③ (vision) learns about the variant. Kept separate from
+# set_vision_cone so BOTH wiring orders (cone-then-params, params-then-cone)
+# converge on the same state.
+func _apply_params_to_cone() -> void:
+	if _cone != null and is_instance_valid(_cone):
+		_cone.set_variant_params(_params)
 
 
 # D9 seam (1). Default Callable() is a safe no-op.
@@ -248,9 +294,14 @@ func _decide(dt: float) -> void:
 	var stimulus: bool = (vis > STIM_EPS) or had_sound
 
 	# (3) accumulate — [D5] vision is a RATE, sound is an IMPULSE.
-	var d: float = KV * vis * dt
+	# E08-S7: the gains come from the variant overlay, NOT from the class
+	# constants. For a STANDARD guard _params.kv/_params.ks ARE KV/KS (mirrored
+	# and drift-locked), so this line is behaviour-identical to Sprint 1; for a
+	# hound it is 15/30. Note what is NOT parameterised: dt, the decay, and every
+	# threshold below. That is E08-S10's contract (FLAG-B).
+	var d: float = _params.kv * vis * dt
 	if had_sound:
-		d += KS * snd                                 # ★ no dt: unit is pts/event
+		d += _params.ks * snd                         # ★ no dt: unit is pts/event
 
 	# (4) decay — E4: mutually exclusive with accumulation within a tick.
 	if not stimulus:
@@ -305,7 +356,19 @@ func _on_vision_stimulus(from_guard: int, target: Node, visibility: float) -> vo
 func _on_sound_emitted(payload: Dictionary) -> void:
 	# Only events whose grid+radius filter already named this guard (E06-S1).
 	var targets: Array = payload.get("target_guard_ids", [])
-	if not targets.has(guard_id):
+	var addressed: bool = targets.has(guard_id)
+	var mult: float = _params.perception_radius_mult
+	# ★ E08-S7 hound hearing reach (GDD §9.2 sound_detect_radius_mult = 1.6).
+	# `sound_emitted` is a BROADCAST — every brain sees every event and filters
+	# itself — so a guard whose hearing reaches further than the event radius can
+	# legitimately accept an event that E06's radius filter did not address to
+	# it. This is the only way the x1.6 can actually extend RANGE: E06's
+	# target_guard_ids is computed from the emitter's radius alone and knows
+	# nothing about per-guard hearing, so filtering on it first would cap the
+	# hound at the standard radius and reduce x1.6 to a pure loudness buff that
+	# no test could tell apart from "the multiplier does nothing".
+	# mult <= 1.0 (every STANDARD guard) keeps the original early-out verbatim.
+	if not addressed and mult <= 1.0:
 		return
 	if _sound == null or not is_instance_valid(_sound):
 		return
@@ -315,7 +378,14 @@ func _on_sound_emitted(payload: Dictionary) -> void:
 	# 3D euclidean distance — MUST match sound_propagation.gd:126's in-radius
 	# test, otherwise "inside the circle" and "how loud" disagree.
 	var dist: float = origin.distance_to(_pos)
-	var falloff: float = _sound.suspicion_from_distance(intensity, dist, radius)
+	# The multiplier is applied to the RADIUS, not to the resulting falloff:
+	# E06's formula is intensity * (1 - dist/radius), so scaling the radius both
+	# extends the reach AND raises the loudness at any fixed distance, which is
+	# exactly "hearing is sharper" rather than "sounds are louder everywhere".
+	# Clamped >= 1.0 so a malformed overlay can never DEAFEN a guard below the
+	# E06 contract it was already addressed under.
+	var eff_radius: float = radius * maxf(mult, 1.0)
+	var falloff: float = _sound.suspicion_from_distance(intensity, dist, eff_radius)
 	if falloff <= 0.0:
 		return                                        # dist >= radius, or radius <= 0
 	# E2: take the MAX, never the sum — otherwise many quiet steps out-score one

@@ -11,6 +11,7 @@ extends GutTest
 const HudColors := preload("res://src/ui/hud_colors.gd")
 const LightModel := preload("res://src/game/light_model.gd")
 const BudgetChecks := preload("res://tests/ci/budget_checks.gd")
+const GuardSpawnerScript := preload("res://src/game/guard_spawner.gd")
 
 const CI_YML := "res://.github/workflows/ci.yml"
 const BUDGET_ASSERT := "res://tests/ci/budget_assert.gd"
@@ -102,3 +103,34 @@ func test_budget_assert_emits_warn_on_violation() -> void:
 
 	assert_true(warns.has("R-04"),
 		"N-11/N-12 reverse: R-04 violation (fog 0.90 > 0.05) MUST emit [WARN][R-04] [H30]")
+
+
+func test_budget_assert_emits_warn_on_guard_overflow() -> void:
+	# G-01 reverse assertion (E08-S9 / control-manifest :86). Same N-11/N-12 gap
+	# QA flagged: a scanner that can never fire rots green. We inject REAL
+	# over-budget counts into BudgetChecks.scan_guard_budget() and prove it emits
+	# [WARN][guard-instance-budget]; an equal-to-cap count must stay clean (the
+	# MIRROR half, so "8 > 8" can never sneak in as a false red).
+	var bc := BudgetChecks.new()
+
+	# ① MVP: 9 > cap 8 must WARN; exactly 8 must NOT.
+	var over_mvp := bc.scan_guard_budget(9, GuardSpawnerScript.Tier.MVP)
+	assert_true(over_mvp.has("guard-instance-budget"),
+		"G-01 reverse: 9 MVP-area guards > cap 8 MUST emit [WARN][guard-instance-budget] [N-11]")
+	var at_mvp := bc.scan_guard_budget(8, GuardSpawnerScript.Tier.MVP)
+	assert_false(at_mvp.has("guard-instance-budget"),
+		"G-01 mirror: exactly 8 (== cap) must NOT warn (anti-rot boundary) [N-12]")
+
+	# ② Tier2: 17 > cap 16 must WARN; exactly 16 must NOT.
+	var over_t2 := bc.scan_guard_budget(17, GuardSpawnerScript.Tier.TIER2)
+	assert_true(over_t2.has("guard-instance-budget"),
+		"G-01 reverse: 17 Tier2-area guards > cap 16 MUST emit [WARN][guard-instance-budget] [N-11]")
+	var at_t2 := bc.scan_guard_budget(16, GuardSpawnerScript.Tier.TIER2)
+	assert_false(at_t2.has("guard-instance-budget"),
+		"G-01 mirror: exactly 16 (== cap) must NOT warn (anti-rot boundary) [N-12]")
+
+	# ③ Below cap must never warn on either rung (the standard-vs-variant count is
+	#    the same budget, so a small mixed population stays green).
+	var small := bc.scan_guard_budget(3, GuardSpawnerScript.Tier.MVP)
+	assert_false(small.has("guard-instance-budget"),
+		"G-01 mirror: 3 MVP-area guards (< cap) must stay clean [N-12]")
