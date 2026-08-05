@@ -18,6 +18,17 @@
 # budget_checks.gd like every other check; this entry point is what wires the
 # LIVE user:// save directory into the size scan (unit tests leave it empty so
 # they never read a developer's real slots).
+#
+# [Sprint 2 · Batch B] Two interactable assertions joined the WARN-ONLY roster:
+#   @ci:no-orphan-interactables    (E07-S7) — every interactable script is on a
+#                                   RefCounted lineage and none is attached to a
+#                                   scene node
+#   @ci:interactable-instance-cap  (E07-S8) — INSTANCE_CAP stays inside R-02 and
+#                                   no scene declares more than the cap
+# sprint2-stories E07-S7 pins these as WARN-ONLY: they do NOT enter the N-7 gate
+# and MUST NOT change this script's exit code. The pre-existing R-02 (dynamic
+# light scan) and G-02 (runtime, test_sound_propagation.gd) assertions are
+# untouched — E07-S8 requires that adding DECOY/LIGHT_TOGGLE does not break them.
 
 extends SceneTree
 

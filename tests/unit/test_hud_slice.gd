@@ -408,3 +408,50 @@ func test_exposure_alert_ui_non_color():
 	# the substitute colour must already be wired to the signed value.
 	assert_eq(HudColors.HUD_COLOR_ALARM_CB, HudColors.HUD_COLOR_CAUTION,
 		"C-06: the colour-blind substitute for ALARM is the signed Caution amber")
+
+
+# --- E07-S6 (Sprint 2 · Batch B) ---------------------------------------------
+# test_charges_display (above) proves the SLOT renders correctly when handed a
+# payload. This test closes the other half: a REAL interactable entity, drawing
+# on a REAL charge ledger, drives that slot end-to-end over the frozen
+# interactable_triggered signal. Without it the HUD could stay green while the
+# E07 entity layer emitted nothing at all.
+func test_hud_shows_interactable_charges() -> void:
+	var reg := InteractableRegistry.new(_bus)
+	var decoy := reg.spawn(EventBus.InteractableType.DECOY, Vector3.ZERO) as DecoyEntity
+	assert_not_null(decoy, "E07-S6 precondition: the registry spawns a real DECOY")
+
+	var stock := reg.charges().remaining(decoy.entity_id, EventBus.InteractableType.DECOY)
+	assert_false(_hud._item_slot.visible, "E07-S6: nothing is shown before the first use")
+
+	assert_true(decoy.throw(Vector3(2, 0, 2), "STONE"),
+		"E07-S6 precondition: the throw succeeds")
+	assert_true(_hud._item_slot.visible, "E07-S6: a real throw reveals the item slot")
+	assert_eq(_hud._item_label.text, "DECOY",
+		"E07-S6: the slot names the CURRENT InteractableType")
+	assert_eq(_hud._item_charges.text, "%d" % (stock - 1),
+		"E07-S6: the slot shows the POST-debit charge count from the real ledger")
+
+	# C-05: the type is carried by the WORD and the icon, never by hue. Switching
+	# to a different type must change the TEXT while leaving the colour alone.
+	var decoy_color: Color = _hud._item_label.get_theme_color("font_color")
+	var smoke := reg.spawn(EventBus.InteractableType.SMOKE, Vector3.ZERO) as SmokeEntity
+	smoke.announce_to_hud()
+	assert_eq(_hud._item_label.text, "SMOKE",
+		"E07-S6: switching item re-labels the slot")
+	assert_eq(_hud._item_label.get_theme_color("font_color"), decoy_color,
+		"C-05: item type must be encoded by text/icon, NEVER by a hue change")
+	assert_eq(_hud._item_label.get_theme_color("font_color"), HudColors.HUD_COLOR_CARRIER,
+		"E07-S6: the slot's only colour authority is HudColors (no literals)")
+
+	# Exhausting the pool dims the ICON but keeps the numeral bright (C-05 dual
+	# encoding), and the entity itself refuses to fire.
+	for i in range(stock - 1):
+		decoy.throw(Vector3(float(i), 0, 0), "STONE")
+	assert_eq(_hud._item_charges.text, "0", "E07-S6: an exhausted pool reads 0")
+	assert_almost_eq(_hud._item_icon.modulate.a, HudSlice.CHARGES_DIM_ALPHA, 0.0001,
+		"E07-S6/C-05: exhausted state is carried by icon ALPHA, not by hue")
+	assert_false(decoy.throw(Vector3(9, 0, 9), "STONE"),
+		"E07-S6: the HUD and the gate agree — 0 charges means no throw")
+
+	reg.unload_level()
