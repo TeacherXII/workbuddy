@@ -119,6 +119,12 @@ var legacy_a11y_migrated: bool = false
 var _prefs_cache: Dictionary = {}
 var _prefs_loaded: bool = false
 
+# O-3b bookkeeping. Like the migration above, the orphaned-staging scan runs
+# LAZILY on the first operation that cares about slot contents, never from
+# _ready() — _ready() fires before configure_paths(), so a scan there would walk
+# the real user://saves/ in every headless test run.
+var _staging_recovery_done: bool = false
+
 
 func _ready() -> void:
 	# Group registration only — no disk IO on boot (see the migration note above).
@@ -146,6 +152,8 @@ func configure_paths(save_dir: String, prefs_path: String, legacy_a11y_path := "
 	legacy_a11y_migrated = false
 	_checkpoint_cache = {}
 	corrupt_slots = {}
+	# A new save dir has its own orphans; the previous scan says nothing about it.
+	_staging_recovery_done = false
 
 
 func get_save_dir() -> String:
@@ -268,6 +276,10 @@ func read_slot(slot_id: int) -> Dictionary:
 		_emit_deferred(&"load_completed", [slot_id, false])
 		return {}
 
+	# O-3b: before concluding a slot is empty, give an orphaned staging file the
+	# chance to become the slot it was already promoted-but-for-one-syscall to be.
+	ensure_staging_recovered()
+
 	var path := slot_path(slot_id)
 	if not FileAccess.file_exists(path):
 		# Not corruption — an empty slot is a legal state. Still reported.
@@ -325,7 +337,11 @@ func slot_tmp_path(slot_id: int) -> String:
 
 
 func has_checkpoint() -> bool:
-	return not _checkpoint_cache.is_empty() or FileAccess.file_exists(slot_path(CHECKPOINT_SLOT_ID))
+	if not _checkpoint_cache.is_empty():
+		return true
+	# O-3b: an interrupted checkpoint promotion must not read as "no checkpoint".
+	ensure_staging_recovered()
+	return FileAccess.file_exists(slot_path(CHECKPOINT_SLOT_ID))
 
 
 func is_slot_corrupt(slot_id: int) -> bool:
@@ -345,6 +361,19 @@ func _checkpoint_write_throttled() -> bool:
 
 
 func _flush_write(slot_id: int, slot: Dictionary) -> void:
+	# O-3b, and the ORDER here matters. _write_atomic() opens the staging path
+	# with WRITE, which truncates whatever is already there — including an
+	# orphan that recovery could still have promoted. If this write then failed,
+	# we would have destroyed a recoverable save on the way to not saving
+	# anything, and the slot would end up empty rather than merely stale. So the
+	# orphan is promoted to a real slot FIRST; the new write then supersedes it
+	# normally, and a failure leaves the recovered document in place (EC-7).
+	#
+	# Recovery lives on this deferred path, never in write_slot() itself: GDD §6
+	# forbids a gameplay tick from paying for disk IO, and write_slot() is called
+	# from checkpoint volumes.
+	ensure_staging_recovered()
+
 	var ok := true
 	var err := DirAccess.make_dir_recursive_absolute(_save_dir)
 	if err != OK and err != ERR_ALREADY_EXISTS:
@@ -446,6 +475,152 @@ func _write_atomic(slot_id: int, json: String) -> bool:
 func _discard_staging(tmp_path: String) -> void:
 	if FileAccess.file_exists(tmp_path):
 		DirAccess.remove_absolute(tmp_path)
+
+
+# =============================================================================
+# O-3b — ORPHANED STAGING RECOVERY (Sprint 3 · S3-B follow-up F2)
+# =============================================================================
+## Closes the narrow window _write_atomic() documents but cannot itself cover:
+## the process dies between "the staging file is complete" and "the rename has
+## landed". O-3 already downgraded that outcome from `slot corrupt` to `slot
+## missing`, which is honest — but a slot the player DID save still reads back
+## empty, and the very next save silently overwrites the evidence. If the
+## complete document is sitting right there, refusing to use it is not caution,
+## it is just loss with better manners.
+##
+## ── ★ WHY THIS DOES NOT TRUST THE STAGING FILE ON SIGHT ★ ───────────────────
+## There is a tempting argument that validation is unnecessary: _discard_staging()
+## runs on EVERY failure path in _write_atomic(), therefore any .tmp that
+## survives must have already passed the reverse length check and be a complete
+## document, therefore promoting it blindly is safe.
+##
+## That argument does not hold, and it fails in exactly the case this feature
+## exists for. _discard_staging() only runs on HANDLED failures — a returned
+## error code we got to inspect. The reason orphans exist at all is UNHANDLED
+## termination: power cut, SIGKILL, OOM, a crash in another thread. None of
+## those run cleanup. A kill during store_string() therefore leaves a .tmp that
+## is real, non-empty, and HALF A DOCUMENT.
+##
+## Promoting that blindly would rename a truncated file onto the slot path and
+## manufacture precisely the `slot corrupt` state that O-3 was written to
+## abolish — at boot, unprompted, on a slot the player believes is safe. So the
+## staging file must clear the same bar read_slot() applies before it is allowed
+## to become a slot: parseable JSON, a Dictionary, the right SAVE_VERSION, and a
+## slot_id that agrees with the filename it is about to occupy.
+##
+## ── ★ WHEN BOTH `slot_N.json.tmp` AND `slot_N.json` EXIST ★ ─────────────────
+## Ruling: the .json wins. It is left untouched, the .tmp is NOT promoted, and
+## the situation is reported. This is not a coin toss between two documents —
+## the platform semantics settle it, and they agree:
+##
+##   POSIX: rename(2) atomically replaces the destination. There is no
+##          observable instant in which both names exist with the operation
+##          half-done. Both present therefore means the rename NEVER RAN.
+##   Windows: Godot's DirAccess::rename() deletes an existing destination and
+##          only then moves the staging file into place. Both present therefore
+##          means we had not reached the delete yet — again, the promotion
+##          NEVER TOOK EFFECT.
+##
+## Either way "both exist" proves the same thing: the .tmp was never committed.
+## The .json is the last document that completed a promotion, so it is the last
+## state the game ever told the player was saved. Preferring the .tmp would mean
+## promoting bytes on the strength of nothing more than their presence — and
+## mtime cannot rescue that judgement either, since it is exactly as consistent
+## with a stale orphan from a crash three sessions ago.
+##
+## ── ★ WHY THIS SCAN NEVER DELETES ★ ─────────────────────────────────────────
+## Promote, or report and leave. Nothing else. Boot is the worst possible moment
+## to destroy data: it happens before the player can intervene, and every .tmp
+## that survives to boot is by definition the best evidence available about an
+## abnormal shutdown. The litter is self-limiting anyway — the next write to
+## that slot opens the same staging path with WRITE and truncates it. If a
+## cleanup ever becomes genuinely necessary it belongs behind an explicit
+## "repair saves" action, not in a silent boot path.
+##
+## ── ★ WHY IT IS LAZY, NOT IN _ready() ★ ─────────────────────────────────────
+## Same reason the a11y migration is lazy (see _migrate_legacy_config_once):
+## _ready() runs before configure_paths(), so a scan there would walk the REAL
+## user://saves/ during every headless test run and could rename a developer's
+## files. Recovery is therefore triggered by the first operation that actually
+## cares about slot contents.
+##
+## Returns the slot ids that were promoted (observability for tests / ⑧).
+func recover_orphaned_staging() -> Array:
+	var recovered: Array = []
+	for id_variant in _all_slot_ids():
+		var slot_id := int(id_variant)
+		var tmp_path := slot_tmp_path(slot_id)
+		# file_exists() is false for a directory, so the "directory parked on
+		# the staging path" fixture used by the O-3 tests is ignored here.
+		if not FileAccess.file_exists(tmp_path):
+			continue
+
+		var final_path := slot_path(slot_id)
+		if FileAccess.file_exists(final_path):
+			push_warning(("SaveManager: staging file %s found alongside an existing slot — "
+				+ "the slot is authoritative and is left untouched (an uncommitted write "
+				+ "from an interrupted session).") % [tmp_path])
+			continue
+
+		var text := FileAccess.get_file_as_string(tmp_path)
+		if not _is_promotable_staging(text, slot_id):
+			push_warning(("SaveManager: staging file %s is not a complete slot document — "
+				+ "NOT promoted (an interrupted write, kept for diagnosis).") % [tmp_path])
+			continue
+
+		var err := DirAccess.rename_absolute(tmp_path, final_path)
+		if err != OK:
+			push_warning("SaveManager: cannot promote orphaned staging %s to %s (err=%d)"
+				% [tmp_path, final_path, err])
+			continue
+
+		push_warning(("SaveManager: recovered slot %d from an orphaned staging file — "
+			+ "the previous session was interrupted between writing and promoting it.")
+			% [slot_id])
+		recovered.append(slot_id)
+	return recovered
+
+
+## Idempotent, lazy trigger. Public so the slot-enumeration path in ⑧ can run
+## recovery BEFORE it decides a row is empty — otherwise the save screen would
+## offer a recoverable slot as free space and the next save would overwrite it.
+func ensure_staging_recovered() -> void:
+	if _staging_recovery_done:
+		return
+	# Set first: this makes the scan re-entrancy proof and guarantees it runs at
+	# most once per configured path set, however many callers race for it.
+	_staging_recovery_done = true
+	recover_orphaned_staging()
+
+
+## The acceptance bar for turning a staging file into a slot. Deliberately the
+## same gate read_slot() applies (version-first, then structure), so recovery
+## can never admit a document that a normal load would have rejected.
+func _is_promotable_staging(text: String, slot_id: int) -> bool:
+	if text == "":
+		return false
+	var parsed: Variant = JSON.parse_string(text)
+	if not (parsed is Dictionary):
+		return false
+	var raw: Dictionary = parsed
+	if not raw.has("version"):
+		return false
+	if int(raw["version"]) != SAVE_VERSION:
+		return false
+	# A document whose own slot_id disagrees with the filename it is about to
+	# occupy is not a truncation, it is a mix-up — refuse either way.
+	if raw.has("slot_id") and int(raw["slot_id"]) != slot_id:
+		return false
+	return true
+
+
+## Every legal slot id, derived from the GDD-locked constants so this cannot
+## drift if MAX_MANUAL_SLOTS changes.
+static func _all_slot_ids() -> Array:
+	var ids: Array = [CHECKPOINT_SLOT_ID]
+	for i in range(MAX_MANUAL_SLOTS):
+		ids.append(i)
+	return ids
 
 
 func _reject(slot_id: int, reason: String, detail: String) -> Dictionary:

@@ -158,10 +158,43 @@ jobs:
           # be produced by a passing test's description (unlike a bare "[Risky]"
           # — see the Batch D false-red incident above, whose lesson we keep by
           # matching the engine's exact wording rather than a loose keyword).
-          if grep -qE 'Failed to load script|SCRIPT ERROR:.*Parse error' gut_output.txt 2>/dev/null; then
+          #
+          # ★ CASE SENSITIVITY FIX (S3-B follow-up F1). As first written the
+          # second alternative was `SCRIPT ERROR:.*Parse error` — lowercase `e` —
+          # and it was a DEAD BRANCH: zero hits across both the false-green and
+          # the true-green run that were pulled down and diffed by hand. Godot
+          # 4.4 prints the loader failure as
+          #     SCRIPT ERROR: Parse Error: Cannot call non-static function ...
+          # with a CAPITAL E, and `grep -E` is case sensitive, so that half never
+          # fired. The whole gate was resting on `Failed to load script` alone —
+          # it worked, but on one leg. The lowercase spelling is not imaginary
+          # either: ResourceLoader embeds it in the OTHER message
+          # (`... with error "Parse error".`), which is almost certainly where it
+          # was copied from. Both spellings are real, so both are matched now.
+          #
+          # ★ WHY `[Pp]`/`[Ee]` AND NOT `grep -i`. A blanket -i would also loosen
+          # `Failed to load script`, and would let an ordinary lowercase
+          # "script error:" written in a test's own prose reach the gate. The
+          # character classes widen exactly the two letters that were wrong and
+          # nothing else.
+          #
+          # ★ WHY THE parse QUALIFIER MUST NEVER BE DROPPED. A legitimately green
+          # run DOES contain SCRIPT ERROR lines: tests that exercise negative
+          # paths on purpose (the last green run had three, e.g. `SCRIPT ERROR:
+          # Invalid operands 'String' and 'int' in operator '=='`). Matching a
+          # bare `SCRIPT ERROR` would turn main red on the next push. This gate
+          # is for load/parse failures ONLY.
+          #
+          # Scope is deliberately gut_output.txt ONLY — the `--import` step above
+          # is allowed to be noisy and is not evidence about the test run.
+          #
+          # Reverse-asserted in tests/unit/test_ci_gates.gd, which re-reads THIS
+          # file, compiles the pattern below with RegEx and pins both what it
+          # MUST catch and what it MUST NOT.
+          if grep -qE 'Failed to load script|SCRIPT ERROR:.*[Pp]arse [Ee]rror' gut_output.txt 2>/dev/null; then
             echo "::error::A test script failed to LOAD — it was silently excluded from the run (N-7b gate)."
             echo ">>> Unloadable scripts:"
-            grep -nE 'Failed to load script|SCRIPT ERROR:.*Parse error' gut_output.txt 2>/dev/null | head -20 || true
+            grep -nE 'Failed to load script|SCRIPT ERROR:.*[Pp]arse [Ee]rror' gut_output.txt 2>/dev/null | head -20 || true
             exit 1
           fi
           if ! grep -qF '[Failed]' gut_output.txt 2>/dev/null \
