@@ -236,9 +236,18 @@ func test_audio_director_owns_no_tween_and_no_timer() -> void:
 	if director == null:
 		return
 
+	# NB: the check below is deliberately a RUNTIME class-name comparison, not
+	# `child is Tween`. Because Tween left the Node hierarchy in Godot 4, the
+	# static type of get_children()'s element (Node) and Tween have no common
+	# descendant, and the 4.4 parser rejects the narrowing outright:
+	#     Parse Error: Expression is of type "Node" so it can't be of type "Tween".
+	# That is a LOAD failure, not a test failure — the whole file is dropped
+	# before GUT collects it, which is exactly the N-7b hazard this suite exists
+	# to guard against. get_class() keeps the traceable intent without asking the
+	# compiler to reason about an impossible cast.
 	var tween_children := 0
 	for child in director.get_children():
-		if child is Tween:
+		if child.get_class() == "Tween":
 			tween_children += 1
 	assert_eq(tween_children, 0, "AudioDirector must own no Tween node (§4.5 assertion 7)")
 
