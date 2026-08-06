@@ -203,6 +203,14 @@ func scan_rows() -> Array:
 	var rows: Array = SaveUiModelScript.blank_rows()
 	if _sm == null or not is_instance_valid(_sm):
 		return rows
+	# O-3b: this is the「首次枚举槽位」trigger for orphaned-staging recovery. It
+	# has to happen BEFORE the rows are peeked, because this scan is what decides
+	# a row is EMPTY — and an empty row is offered to the player as free space.
+	# Without this, a save interrupted between writing and promoting would be
+	# shown as an empty slot and then overwritten by the next save. The call is
+	# idempotent and emits nothing on the bus, so it cannot make building the
+	# list look like a load (test_building_the_list_never_looks_like_a_load).
+	_sm.ensure_staging_recovered()
 	for i in range(rows.size()):
 		var slot_id := int(rows[i]["slot_id"])
 		var readonly := bool(rows[i]["readonly"])

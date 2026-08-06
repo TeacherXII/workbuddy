@@ -180,12 +180,24 @@ func _open(mode: int, fill: Dictionary) -> SaveUiModelScript:
 	return m
 
 
+## A SECOND manager over the SAME save dir — i.e. "the next session". Recovery
+## is lazy and one-shot per configured path set, so simulating a restart needs a
+## genuinely fresh instance rather than a flag reset.
+func _fresh_manager() -> Node:
+	var sm := SaveManagerScript.new()
+	add_child_autofree(sm)
+	sm.set_event_bus(_bus)
+	sm.configure_paths(TEST_SAVE_DIR, TEST_PREFS_PATH)
+	return sm
+
+
 ## Screen wired to this test's bus + isolated SaveManager, with _process OFF so
 ## the suite drives animation deterministically instead of racing a real clock.
-func _make_screen() -> SaveSlotsScreenScript:
+## `sm` overrides the default manager (used by the O-3b restart tests).
+func _make_screen(sm: Node = null) -> SaveSlotsScreenScript:
 	var s := SaveSlotsScreenScript.new()
 	s.set_event_bus(_bus)
-	s.set_save_manager(_sm)
+	s.set_save_manager(_sm if sm == null else sm)
 	s.set_snapshot_provider(_provide_snapshot)
 	s.set_subtitle_sink(_sink_subtitle)
 	s.set_audio_sink(_sink_audio)
@@ -298,6 +310,134 @@ func test_slot_destination_is_never_opened_for_truncating_write() -> void:
 	assert_true(src.contains("slot_tmp_path("), "the staging path helper must exist and be used")
 	assert_true(src.contains("DirAccess.rename_absolute("),
 		"promotion to the real slot must happen through a rename, not a second write")
+
+
+# =============================================================================
+# O-3b — orphaned staging recovery (S3-B follow-up F2)
+# =============================================================================
+## The window O-3 documents but cannot close from inside a single write: the
+## staging file is complete and the rename never happened. The document is
+## sitting on disk; refusing to use it is loss with better manners.
+##
+## This also pins the LAZINESS of the scan. Recovery must not run from _ready(),
+## because _ready() fires before configure_paths() and would walk the real
+## user://saves/ in every headless run.
+func test_orphaned_staging_file_is_promoted_on_the_next_session() -> void:
+	_sm.write_slot(0, {"checkpoint_id": "cp_orphan", "timestamp": FIXED_TS})
+	assert_true(await wait_for_signal(_bus.save_completed, SIGNAL_TIMEOUT))
+	var doc := FileAccess.get_file_as_string(_sm.slot_path(0))
+	assert_ne(doc, "", "fixture: the promoted slot must be readable")
+
+	# Rewind to one syscall before the promotion.
+	_write_raw(_sm.slot_tmp_path(0), doc)
+	DirAccess.remove_absolute(_sm.slot_path(0))
+	assert_false(FileAccess.file_exists(_sm.slot_path(0)), "fixture: the slot is gone")
+	assert_true(FileAccess.file_exists(_sm.slot_tmp_path(0)), "fixture: the staging file remains")
+
+	var sm2: Node = _fresh_manager()
+	assert_true(FileAccess.file_exists(sm2.slot_tmp_path(0)),
+		"recovery must be LAZY — constructing and configuring a manager must not "
+		+ "walk the save dir (a _ready() scan would hit the real user:// files)")
+
+	var slot: Dictionary = sm2.read_slot(0)
+	assert_false(slot.is_empty(), "the complete-but-unpromoted document must come back")
+	assert_eq(str(slot.get("checkpoint_id", "")), "cp_orphan",
+		"and it must be the SAME document, not a rebuilt approximation of one")
+	assert_true(FileAccess.file_exists(sm2.slot_path(0)),
+		"recovery promotes the staging file into a real slot")
+	assert_false(FileAccess.file_exists(sm2.slot_tmp_path(0)),
+		"promotion is a rename — the staging file is consumed, not duplicated")
+	assert_true(await wait_for_signal(_bus.load_completed, SIGNAL_TIMEOUT))
+
+
+## ★ REVERSE ASSERTION (the「两者都存在」ruling). The rival document here is
+## COMPLETE and perfectly valid — it is refused not for being malformed but for
+## never having been committed. On POSIX rename() is atomic and on Windows Godot
+## deletes the destination before moving, so under BOTH semantics "slot and
+## staging both present" proves the promotion never took effect. The slot is the
+## last state the game ever told the player was saved, so the slot wins.
+func test_orphaned_staging_never_overwrites_an_existing_slot() -> void:
+	_sm.write_slot(1, {"checkpoint_id": "cp_committed", "timestamp": FIXED_TS})
+	assert_true(await wait_for_signal(_bus.save_completed, SIGNAL_TIMEOUT))
+	var committed := FileAccess.get_file_as_string(_sm.slot_path(1))
+	assert_ne(committed, "", "fixture: the committed slot must be readable")
+
+	var rival: String = SaveManagerScript.slot_to_json(SaveManagerScript.make_slot(
+		1, false, {"checkpoint_id": "cp_uncommitted", "timestamp": FIXED_TS + 600.0}))
+	_write_raw(_sm.slot_tmp_path(1), rival)
+	assert_ne(rival, committed, "fixture: the rival must actually differ")
+
+	var sm2: Node = _fresh_manager()
+	var slot: Dictionary = sm2.read_slot(1)
+	assert_eq(str(slot.get("checkpoint_id", "")), "cp_committed",
+		"the committed slot must win — an uncommitted staging file is not a newer save")
+	assert_eq(FileAccess.get_file_as_string(sm2.slot_path(1)), committed,
+		"and it must be byte-for-byte untouched")
+	assert_true(FileAccess.file_exists(sm2.slot_tmp_path(1)),
+		"boot recovery must never DELETE — the uncommitted document is the best "
+		+ "evidence there is about the interrupted session")
+	assert_true(await wait_for_signal(_bus.load_completed, SIGNAL_TIMEOUT))
+
+
+## ★ THE PREMISE CHECK. It is tempting to argue that any staging file which
+## survives to boot must be complete, because _write_atomic() discards it on
+## every failure path. That only covers HANDLED failures. Orphans exist because
+## of UNHANDLED termination — power cut, SIGKILL, OOM — and none of those run
+## cleanup, so a kill during store_string() leaves half a document behind.
+## Promoting it blindly would manufacture the corrupt slot O-3 exists to abolish.
+func test_a_truncated_orphan_is_not_promoted_into_a_corrupt_slot() -> void:
+	_write_raw(_sm.slot_tmp_path(2), "{\"version\":2,\"slot_id\":2,\"is_che")
+	assert_false(FileAccess.file_exists(_sm.slot_path(2)), "fixture: the slot is absent")
+
+	var sm2: Node = _fresh_manager()
+	var slot: Dictionary = sm2.read_slot(2)
+	assert_true(slot.is_empty(), "half a document must not become a slot")
+	assert_false(FileAccess.file_exists(sm2.slot_path(2)),
+		"promoting it would create exactly the corrupt slot O-3 was written to prevent")
+	assert_eq(sm2.get_corrupt_reason(2), "",
+		"an unpromoted orphan is not a corrupt slot — the slot is honestly empty")
+	assert_true(await wait_for_signal(_bus.load_completed, SIGNAL_TIMEOUT))
+
+
+## Recovery applies read_slot()'s OWN acceptance bar, not a weaker one. A v1
+## document is an incompatible state (GDD §2: reject and rebuild, never
+## migrate), and that verdict cannot change just because the file arrived
+## through the staging path instead of the slot path.
+func test_an_orphan_from_an_incompatible_version_is_not_promoted() -> void:
+	_write_raw(_sm.slot_tmp_path(2), "{\"version\":1,\"slot_id\":2,\"checkpoint_id\":\"cp_v1\"}")
+
+	var sm2: Node = _fresh_manager()
+	var slot: Dictionary = sm2.read_slot(2)
+	assert_true(slot.is_empty(), "a v1 staging document must not be promoted")
+	assert_false(FileAccess.file_exists(sm2.slot_path(2)),
+		"recovery must not admit a document a normal load would have rejected")
+	assert_true(await wait_for_signal(_bus.load_completed, SIGNAL_TIMEOUT))
+
+
+## The enumeration path matters as much as the load path: scan_rows() is what
+## decides a row is EMPTY, and an empty row is offered to the player as free
+## space. Recovering only inside read_slot() would still let the save screen
+## hand out a recoverable slot and overwrite it.
+func test_the_save_list_recovers_an_orphan_before_offering_the_row_as_empty() -> void:
+	_sm.write_slot(0, {"checkpoint_id": "cp_listed", "timestamp": FIXED_TS})
+	assert_true(await wait_for_signal(_bus.save_completed, SIGNAL_TIMEOUT))
+	var doc := FileAccess.get_file_as_string(_sm.slot_path(0))
+	_write_raw(_sm.slot_tmp_path(0), doc)
+	DirAccess.remove_absolute(_sm.slot_path(0))
+
+	var sm2: Node = _fresh_manager()
+	var s := _make_screen(sm2)
+	_load_events.clear()
+	var rows: Array = s.scan_rows()
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	assert_eq(_load_events.size(), 0,
+		"recovery emits nothing — building the list must still not look like a load")
+	assert_eq(int(rows[1]["status"]), SaveUiModelScript.RowStatus.FILLED,
+		"a recoverable slot must never be presented as free space")
+	assert_true(FileAccess.file_exists(sm2.slot_path(0)),
+		"and the recovery really happened, rather than the row merely claiming it")
 
 
 # =============================================================================
