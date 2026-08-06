@@ -105,7 +105,20 @@ const LABEL_CHECKPOINT := "自动 · 检查点"
 const LABEL_SLOT_FMT := "槽 %d"
 const TEXT_EMPTY_SLOT := "— 空槽位 —"
 const BADGE_READONLY := "〔只读〕"
-const BADGE_CORRUPT := "〔⚠ 损坏〕"
+# ART-OOS-2 交付 D (design/art/ui-badge-corrupt-spec.md §5.1). The ⚠ used to sit
+# inside this string. It was never a dependable SHAPE channel: it renders
+# through whatever emoji font the platform happens to ship, it can arrive as a
+# tofu box, and in colour-blind mode it left the corrupt badge with nothing to
+# separate it from the focus ring but a hex the two already share. C-05/C-07
+# want shape + icon + luminance, so the shape moved out of the font and into a
+# vector the renderer cannot substitute. Text and icon are separate carriers
+# now; this constant is the TEXT half.
+const BADGE_CORRUPT := "〔损坏〕"
+## The SHAPE/ICON half — a filled triangle with a punched「!」, white fill so a
+## single asset serves both colour states via TextureRect.modulate through the
+## C-06 resolver (#D64545 default / #F0C070 colour-blind). Never bake either
+## colour into the file.
+const BADGE_CORRUPT_ICON := "res://arts/ui/ui_badge_corrupt.svg"
 const BADGE_BUSY_WRITE := "〔写入中…〕"
 const BADGE_BUSY_READ := "〔读取中…〕"
 

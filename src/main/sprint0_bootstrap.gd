@@ -72,6 +72,50 @@ func _instantiate_systems() -> void:
 	add_child(_vc)
 	_hud = HudSlice.new(); add_child(_hud)
 	_sound = SoundPropagator.new()   # G1: sole bus emitter of sound_emitted
+	_wire_audio_director()
+
+
+## E-7 (S3-B). The audio layer's ONE subscription, made from the side that owns
+## the publisher: AudioDirector is an autoload, TimeController is not, so the
+## director cannot go looking for it (and deliberately does not — see
+## audio_director.gd set_time_controller()).
+##
+## Skip this call and nothing breaks loudly: the director still boots, still
+## plays UI cues, still runs the load fade. What silently disappears is every
+## World-bus preset (ADR-005 D-3) — 凝神 and 暂停 stop ducking, with no error,
+## no crash and nothing for CI to see. Same failure class as F-5, so the wire
+## lives here, on the line after the controller is born.
+##
+## get_node_or_null rather than a hard $ path: a unit test may build this
+## bootstrap inside a tree where the autoload was never registered, and a
+## missing ducking wire must not take the whole slice down with it.
+func _wire_audio_director() -> void:
+	var director := get_node_or_null("/root/AudioDirector")
+	if director == null:
+		return
+	if not director.has_method("set_time_controller"):
+		push_warning("Sprint0Bootstrap: /root/AudioDirector has no set_time_controller")
+		return
+	director.set_time_controller(_time)
+
+
+# ── ★ The other half of E-7 has no construction site yet ────────────────────
+# SaveSlotsScreen (SCR_SLOTS) is NOT mounted in this vertical slice; today it is
+# built only by tests/unit/test_save_ui.gd. So the cue sink and the fade sink
+# have nowhere to be attached from production code, and inventing a call site
+# here would mean bolting a save UI onto a demo that has no menu to open it.
+#
+# When the screen does get a real home, wire it with the ONE call that attaches
+# both sinks together:
+#
+#     screen.wire_audio(get_node("/root/AudioDirector"))
+#
+# NOT set_audio_sink() alone. Attaching only the cue sink is exactly the F-5
+# defect: the load fade would never reach the director, so nothing would ever
+# call end_load_fade(), and the World bus would stay parked at -12 dB / LPF
+# 700 Hz for the rest of the session. wire_audio() exists so that the wrong
+# half cannot be wired on its own, and test_audio_bus_layout.gd fails the build
+# if a future construction site tries.
 
 
 func _setup_scene() -> void:

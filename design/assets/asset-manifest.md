@@ -33,6 +33,11 @@
 | 着色器 | **`.gdshader`** | 地面光照遮罩、锥缘脉动、熄灯过场、落足微光等确定性着色器。 |
 | 纹理 | **`.png`**（sRGB 贴图）/ **`.exr`**（HDR 自发光/光照遮罩） | 游戏贴图压缩为 `.png`（BC7）；LightmapGI 烘焙产物与 HDR 自发光源用 `.exr`。 |
 | 动画 | **`.tres` / 内嵌 `.tscn`**（Animation / AnimationTree / AnimationNodeStateMachine） | 角色步态、FSM 姿态靠 AnimationTree 混合；`time_scale` 自动缩放（ADR-003）。 |
+| **短音效**（UI 反馈 / foley，< 2 s） | **`.wav`** | PCM，**48 kHz / 16-bit / 单声道**（母版 24-bit）。UI 反馈**不得**用有损格式——样本精确、零解码延迟、无循环点偏移。导入 `loop=false`；文件起始静音 ≤5 ms；首尾样本须落零交叉（否则直流跳变 = 一次明亮咔嗒 = 踩 art-bible §1 红线）。 |
+| **环境床 / 音乐**（> 5 s） | **`.ogg`** | Vorbis q6（≈192 kbps），48 kHz。内存友好、可流式。 |
+| **配音 VO**（预留，当前为空） | **`.ogg`** | Vorbis q5，48 kHz。 |
+
+- **采样率统一 48 kHz**：须把 `project.godot` 的 `audio/driver/mix_rate` 设为 `48000`（Godot 默认 44100，不改则每个 48 k 资产在运行时重采样）。**当前 `project.godot` 无 `[audio]` 段**，属工程侧动作（程基岩，E-3），非资产侧。
 
 ### 1.3 命名规范（强制）
 格式：`<category>_<name>[_<variant>][_<lodN>][_<map>].<ext>`
@@ -47,9 +52,14 @@
 | `mat` | 共享材质库 | `mat_stone_wall.tres`、`mat_ash_ground.tres` |
 | `ui` | HUD/菜单纹理（暗面板） | `ui_panel_dark_70.tres`、`ui_focus_ring.tres` |
 | `tex` | 纹理贴图（作为 `mat` 引用源） | `tex_env_wall_albedo.png`、`tex_env_wall_normal.png`、`tex_env_wall_orm.png` |
+| `sfx` | 音效（第二段为**域**：`ui` 界面 / `foot` 足音 / `obj` 物件机关 / `guard` 守卫） | `sfx_ui_save_success.wav`、`sfx_foot_stone_a.wav`、`sfx_obj_door_latch.wav` |
+| `amb` | 环境床 | `amb_nave_bed.ogg` |
+| `mus` | 音乐 | `mus_nave_drone.ogg` |
+| `vo` | 配音（预留） | `vo_guard_alert_a.ogg` |
 
 - **LOD 后缀**：`_lod0`（近，全细节）/ `_lod1`（中，简化）/ `_lod2`（远，剪影/impostor）。无 LOD 后缀者默认 `_lod0`（如互动物件多用单 LOD）。
 - **地图后缀（纹理）**：`_albedo` / `_normal` / `_orm`（Occlusion+Roughness+Metalness 合图）/ `_emissive`。
+- **音频变体后缀**：多变体用 `_a` / `_b` / `_c`（**不用 `_01`**，与 `_lodN` 的数字风格区分，避免 CI 命名断言把变体号误读成 LOD 号）。音频资产**无 LOD 概念**，`_lodN` 对 `sfx`/`amb`/`mus`/`vo` 前缀不适用。
 - **目录约定（`res://arts/…`）**：
 ```
 res://arts/
@@ -61,6 +71,7 @@ res://arts/
   materials/
   lighting/          (lightmap bake 配置 / WorldEnvironment 预设 / 密度盒)
   ui/                (暗面板纹理 / 焦点环 / 图标图集)
+  audio/             ui/  world/  ambience/  music/  vo/   （+ audio_bus_layout.tres）
 ```
 - **CI 校验（control-manifest §7）**：命名不符前缀/缺 `_lodN`/静态网格缺 UV2 → 断言告警（lean 不阻断构建，记「漂移」）。
 
@@ -273,6 +284,39 @@ res://arts/
 **未列入资产层（交 UI/引擎/程基岩）**：行 4 色盲模式开关逻辑、行 5/6/8/9 频闪/转场/屏震/动模糊开关、行 7 雾选项、行 10/11/12 时间缩放/文本/字幕、行 13/14 输入重映射逻辑、行 18 认知负荷——资产层仅提供**可被这些开关驱动的素材**（如 emissive 强度、脉动幅度、雾 density 接口），不自行实现开关。
 
 **眩护参数（资产着色器须内置上限）**：暴露/锥缘脉动 **≤2Hz**（V-02）、幅度温和；禁止 >3Hz 频闪（V-01）；转场 ease 非硬切（V-06）；熄灯雾 ramp ≤0.12/≤0.4s（R-05）。这些为着色器常量上限，CI 断言核对（control-manifest §7）。
+
+---
+
+## 7. 音频资产（S3-B 引入）
+
+> 权威规格：`design/audio/s3b-save-load-audio-spec.md` v1.0（§1.6 命名格式路径 · §2 事件规格 · 附录 B 交付清单）。本节只登记**类目与状态**，不复制数值——数值只有一个源，复制即制造漂移。
+> 音频域的 `AUD-*` 约束编号**不属于** `control-manifest.md`（该清单 R/T/V/C/X/G 六族无一条覆盖音频），其权威源为上述音频规格。
+
+### 7.1 S3-B 交付类目（6 事件 → 2 实际资产）
+
+| # | 类目 | 事件 | 实际文件 | 格式 | 调用方增益 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| A-1 | **主成功音**「嗒」 | 存档成功 | `res://arts/audio/ui/sfx_ui_save_success.wav` | 48 kHz / 16-bit / 单声道 / PCM，110 ms | `0.0 dB` | **待制作** |
+| A-2 | **主失败音**「顿」 | 存档失败 · 读档失败 | `res://arts/audio/ui/sfx_ui_save_failure.wav` | 48 kHz / 16-bit / 单声道 / PCM，220 ms | `0.0 dB` | **待制作** |
+| A-3 | **删除成功（别名）** | 删除成功 | **无文件 —— 复用 A-1** | — | `-1.0 dB`（调用方给） | **不产资产** |
+| A-4 | **禁用动作（别名）** | 禁用动作 `action_denied` | **无文件 —— 复用 A-2** | — | `-3.0 dB`（调用方给） | **不产资产** |
+| A-5 | **读档成功（无 UI 音）** | 读档成功 | **无文件、无 cue** | — | — | **不产资产** |
+
+### 7.2 三条不可违反的登记纪律
+
+1. **★ A-3 / A-4 是别名，不是资产。** 绝**不得**回填成「待制作」，也绝不得渲染一个"已经低 1 dB / 3 dB"的独立文件。cue 表 `base_gain_db` **恒为 0.0**，全部相对电平**只**由调用方 `gain_db` 表达（音频规格 **AUD-G1**）。若为 A-4 单独渲染一个 −3 dB 文件，运行时会叠加调用方已传的 `-3.0` 变成 **−6 dB**，且这个错误**对现有 CI 完全隐形**（`test_save_ui.gd` 只断言调用方参数，看不见 cue 表）。
+2. **A-5 不是遗漏。** 读档成功**故意无声**：世界重新出现本身就是反馈，改由 `World` bus 沿 `−60 → 0 dB` 与视觉 `_fade` 遮罩**同帧同曲线**回来（0.4 s）。`test_save_ui.gd` 已断言读档成功时 cue 数为 0。
+3. **A-1 与 A-2 是"电平有序对"，不能单独调。** 硬约束 **AUD-H1**：失败族有效响度 ≤ 成功族有效响度。当前取值 −18.0 / −20.0 LUFS-M，余量 1.0 dB。任何一侧改响度，另一侧必须同步复核。
+
+### 7.3 音频内存预算（新登记）
+
+| 项 | S3-B 实际 | 建议上限 | 说明 |
+| --- | --- | --- | --- |
+| UI 音效常驻 PCM | **≈ 31 KB**（10.3 KB + 20.6 KB，48 kHz×16-bit×单声道×(0.11 s + 0.22 s)） | **≤ 512 KB** | 全部常驻内存，不流式 |
+| 环境床 / 音乐 | 0（本批无） | 流式 `.ogg`，常驻解码缓冲 ≤ 4 MB | 后续批次 |
+| 同发语音数（UI） | ≤ 3（`SFX_UI` 播放器池） | 3 | 超出即偷声（20 ms 淡出），不排队 |
+
+> **`architecture.md` §4 性能预算表当前无音频行** —— 上述"建议上限"是音频侧提案，**须经程基岩 / 主理人确认后**才能进架构预算表。S3-B 实际占用（31 KB）在任何量级上都无风险，本表的价值在于给后续音频批次一个可对照的天花板。
 
 ---
 

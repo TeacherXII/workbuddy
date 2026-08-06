@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <!-- Solid triangle: SHAPE carrier for C-05 / C-07 triple-coding. Runtime tints
+       via TextureRect.modulate (default #D64545 / colour-blind #F0C070).
+       White fill => modulate shows the true colour, so a single asset serves both modes. -->
+  <polygon points="12,3 21,21 3,21" fill="#FFFFFF"/>
+  <!-- Exclamation knockout: dark, stays legible after the modulate tint
+       (near-black against a red or amber triangle). Provides the ICON channel. -->
+  <rect x="11" y="8.5" width="2" height="6.5" rx="1" fill="#1B1B1F"/>
+  <circle cx="12" cy="18" r="1.3" fill="#1B1B1F"/>
+</svg>

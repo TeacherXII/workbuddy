@@ -6,6 +6,11 @@ extends Node
 # Drives the world via Engine.time_scale:
 #   - FLOWING : time_scale = 1.0 (normal play)
 #   - FOCUS   : time_scale = user_scale (default 0.25, eased ramp, V-06)
+#   - PAUSED  : time_scale = 0.0 (menus / save screen only, T-03). Wired in
+#               S3-B by E-11; see enter_paused() for why this one transition is
+#               a hard assignment rather than a ramp, and why T-03's remaining
+#               open question (get_tree().paused vs time_scale = 0) changes
+#               exactly one function body and nothing else.
 #
 # CRITICAL (ADR-003 risk 4): gameplay cooldown / timers MUST use REAL time
 # (Time.get_ticks_msec() or accumulated unscaled delta), never the scaled
@@ -25,7 +30,23 @@ const RAMP := 0.15          # ease ramp duration, non-hard-cut (V-06)
 const USER_MIN := 0.1       # T-02 lower clamp (physics stability floor)
 const USER_MAX := 1.0       # T-01 upper clamp
 const FLOWING_SCALE := 1.0
+const PAUSED_SCALE := 0.0   # T-03 完全冻结, menus only — never a gameplay state
 
+
+## L2 time mode. All three values are LIVE as of S3-B (E-11).
+##
+## PAUSED was declared-only for two sprints — nothing assigned it and no
+## enter/exit pair existed, so every `match mode` branch on it was dead code.
+## It is now wired, and it is wired HERE rather than in the UI because three
+## documents already route through this enum:
+##   · control-manifest T-03            (显式暂停, menus / settings only)
+##   · accessibility-matrix 行 10        (显式暂停读场辅助 — a promised a11y feature)
+##   · design/audio/s3b-save-load-audio-spec.md §1.4
+##       (World bus PAUSED preset, -12 dB / LPF 700 Hz, driven off this mode)
+##
+## ★ Consumers subscribe to time_scale_changed and read the third argument.
+## Do NOT add a second pause signal: E01-S9 froze the event vocabulary, and the
+## existing signal already carries the mode.
 var mode := "FLOWING"       # FLOWING | FOCUS | PAUSED
 
 ## E09-S5b. The FOCUS target the player picked, clamped into [USER_MIN, USER_MAX].
@@ -62,6 +83,57 @@ func exit_focus() -> void:
 	_ramp_to(new_scale)
 	mode = "FLOWING"
 	time_scale_changed.emit(old, new_scale, mode)
+
+
+## E-11 (S3-B). Enter T-03 explicit pause. Callers: SaveSlotsScreen.open_screen()
+## today; any future pause / settings screen tomorrow.
+##
+## ★ WHY THIS IS A HARD ASSIGNMENT AND NOT _ramp_to() ★
+## _ramp_to() drives Engine.time_scale with a Tween, and a Tween's own delta is
+## itself scaled by Engine.time_scale. Ramping TOWARD zero is therefore a Zeno
+## problem: the closer the clock gets to 0, the slower the ramp that is trying
+## to reach it, and it never arrives. Ramping back OUT of 0 is worse — a Tween
+## created while time_scale is exactly 0.0 never advances at all, and the game
+## would stay frozen forever. Both directions must bypass the tween.
+##
+## V-06「禁硬切」is not violated: it governs visual TRANSITIONS (「禁硬切闪光」),
+## and opening a menu is not a world transition. The audible side of the same
+## rule is AUD-V6, which AudioDirector honours with its own 120 ms wall-clock
+## ramp on the World bus — a ramp that keeps running precisely because it does
+## not read a scaled delta.
+##
+## T-03 has still not chosen between `get_tree().paused = true` and
+## `time_scale = 0`. This function implements the latter. If T-03 later picks
+## the former, THIS BODY is the only thing that changes: the mode value, the
+## signal and every subscriber stay exactly as they are.
+func enter_paused() -> void:
+	if mode == "PAUSED":
+		return
+	var old := Engine.time_scale
+	_freeze_to(PAUSED_SCALE)
+	mode = "PAUSED"
+	time_scale_changed.emit(old, PAUSED_SCALE, mode)
+
+
+## E-11 (S3-B). Leave T-03 explicit pause, always back to FLOWING.
+##
+## Never back to FOCUS: 凝神 and 暂停 are mutually exclusive by construction
+## (audio spec §1.4 —「打开暂停菜单必然先退出 FOCUS」), so there is no prior
+## focus state to restore, and restoring one would silently re-enter slow-mo
+## from a menu.
+##
+## ★ MUST be called on EVERY exit path, including the one that does not look
+## like a close: a successful load tears the save screen down through
+## _end_load_fade(), not close_screen(). Miss that path and the game returns to
+## the world with Engine.time_scale still 0.0 — permanently frozen, with no
+## error and nothing for CI to catch.
+func exit_paused() -> void:
+	if mode != "PAUSED":
+		return
+	var old := Engine.time_scale
+	_freeze_to(FLOWING_SCALE)
+	mode = "FLOWING"
+	time_scale_changed.emit(old, FLOWING_SCALE, mode)
 
 
 ## The scale FOCUS will ramp to right now. Always inside T-01, even if someone
@@ -102,6 +174,17 @@ func apply_a11y(settings: A11ySettings) -> void:
 	if settings == null or not is_instance_valid(settings):
 		return
 	set_user_scale(settings.time_scale_user)
+
+
+## Instant, tween-free clock assignment. Used only by the PAUSED transitions —
+## see enter_paused() for the Zeno argument. Kills any ramp in flight so a
+## half-finished FOCUS ramp cannot land on top of the pause a frame later.
+func _freeze_to(target: float) -> void:
+	_ramp_target = target
+	if _tween != null and _tween.is_valid():
+		_tween.kill()
+	_tween = null
+	Engine.time_scale = target
 
 
 func _ramp_to(target: float) -> void:
