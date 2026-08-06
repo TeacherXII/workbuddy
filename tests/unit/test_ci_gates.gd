@@ -63,6 +63,12 @@ const F_LOADFAIL_TAIL := "script \"res://tests/unit/test_patrol_ai.gd\" with err
 # A REAL runtime error from the last green run. Tests drive negative paths on
 # purpose, so lines like this are normal on a healthy build.
 const F_RUNTIME_TAIL := " Invalid operands 'String' and 'int' in operator '=='."
+# The gate's first alternative, split in two for the extraction test below.
+# Written as one literal, THIS LINE would match the gate and break the very
+# invariant the guard test at the bottom enforces — same reason the loader
+# fixture above is split into HEAD and TAIL. Joined at the call site.
+const F_ALT_LOADFAIL_A := "Failed to load "
+const F_ALT_LOADFAIL_B := "script"
 
 
 # =============================================================================
@@ -120,11 +126,22 @@ func _n7b_regex() -> RegEx:
 # =============================================================================
 func test_n7b_gate_pattern_is_extractable_and_compiles() -> void:
 	var line := _n7b_grep_line()
-	assert_ne(line, "",
+	# ★ Do NOT assert `line` or `pattern` as VALUES. GUT echoes the argument it
+	# received, and both of those strings are the gate pattern itself — echoing
+	# either one writes the trigger text into gut_output.txt and makes this very
+	# test red the build. That is exactly how the first run of PR #12 failed,
+	# and it is the same shape as the Batch D incident. Reduce to a bool first:
+	# GUT then only ever prints `true`.
+	var line_found := line.length() > 0 and line.contains(N7B_MARKER)
+	assert_true(line_found,
 		"the N-7b gate must still be findable in ci.yml by its marker comment")
 	var pattern := _n7b_pattern()
-	assert_ne(pattern, "",
-		"the N-7b grep pattern must be extractable from that line")
+	var pattern_ok := pattern.length() > 0 \
+		and pattern.contains(F_ALT_LOADFAIL_A + F_ALT_LOADFAIL_B) \
+		and (pattern.contains("Parse Error") or pattern.contains("Parse error"))
+	assert_true(pattern_ok,
+		"the N-7b pattern must cover both the loader's failure line and the "
+		+ "engine's title-case parse diagnostic")
 	var re := RegEx.new()
 	assert_eq(re.compile(pattern), OK,
 		"the N-7b pattern must be a valid regular expression")
