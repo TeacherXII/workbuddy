@@ -5,9 +5,9 @@
 | **项目** | ASHEN STEP《灰烬之步》 |
 | **引擎 / 平台** | Godot 4（Forward+ / Vulkan）· PC·Steam（键鼠 + 手柄） |
 | **评审强度** | lean（仅核心节点卡质量门） |
-| **文档版本** | v0.2（Phase 2 系统设计前置·锁版基线） |
+| **文档版本** | v0.3（Sprint 3 · S3-B：§4 预算表补音频四行，收口 OOS 冲突 F-4）｜前版 v0.2（Phase 2 系统设计前置·锁版基线） |
 | **作者** | 程基岩（工程负责人） |
-| **上游依据** | `design/concept/game-concept.md`（§2 Mechanics、风险5）、`design/art/art-bible.md`（§3 光照/体积、§9 可访问性） |
+| **上游依据** | `design/concept/game-concept.md`（§2 Mechanics、风险5）、`design/art/art-bible.md`（§3 光照/体积、§9 可访问性）、**`design/audio/asset-categories.md` §7.3（音频预算建议上限）** |
 | **下游衔接** | `docs/architecture/adr/*.md`（决策）、`docs/architecture/control-manifest.md`（硬约束）、Phase 2 `design/gdd/systems/*.md`（逐系统 GDD） |
 
 > **本文用途**：在概念文档与美术圣经锁定后，对齐风险5（RTwP + 可视锥 + 声波 + 状态机在 Godot 4 的预算），产出**架构基线**。本文定义技术栈、整体分层、核心系统技术选型与边界、性能预算表，供后续逐系统 GDD 拆分直接引用。本文为**前置基线**，不含逐系统实现细节（留待 GDD）。
@@ -119,6 +119,17 @@
 | **尘埃加法粒子** | 每光柱上限 + 全局 additive 上限 | 同 | CI 断言 |
 | **目标帧率** | 60 @ 1080p | 60 @ 1080p | 画质预设（低/中/高） |
 | **凝神时间缩放** | 0.1–0.3（默认 0.25） | 同 | 用户 0.1–1.0 可调，下限 0.1 |
+| **UI 音效常驻 PCM** | **≤ 512 KB** | 同 | 全部常驻、不流式（48 kHz/16-bit/单声道）。S3-B 实占 ≈ **31 KB**（上限的 6%） |
+| **流式音频解码缓冲** | **≤ 4 MB** | 同 | 环境床 / 音乐走流式 `.ogg`。S3-B 实占 **0**（本批无床、无乐） |
+| **UI 同发语音数** | **3** | 3 | `SFX_UI` 播放器池固定 3；满池即**偷最旧声**（20 ms 淡出后接续），**不排队** |
+| **音频总线数** | 7 | 7 | `Master / World[Music,Ambience,SFX_World,Voice] / SFX_UI`（ADR-005 D-1）；索引顺序即契约 |
+
+### 音频预算说明（S3-B 新增）
+> 前三行取自 `design/audio/asset-categories.md` §7.3（音频指导给出的建议上限），经工程侧采纳为架构级预算（收口 OOS 冲突 F-4）。
+- **为什么现在就写下来** —— S3-B 的实际占用是 31 KB，量级上零风险。预算行不是为了约束今天的两个 `.wav`，而是为了让「加一条 3 分钟无损环境床」这种决定在**评审时**撞上一个数字，而不是在某台 8 GB 机器上撞上一次卡顿。
+- **512 KB 与 4 MB 的分界是「常驻 vs 流式」，不是大小** —— UI 音必须常驻，因为它要在读盘（正在存档/读档）时立即出声；环境床可以流式，因为它永远有前摇。把一条床误设为常驻，超的不是 4 MB 那条线，是 512 KB 这条。
+- **同发 3 是硬上限，不是软目标** —— 见 `src/core/audio_director.gd` `UI_POOL_SIZE`。第 4 声不会排队等待（那会让「嗒」迟到几百毫秒，比丢掉它更糟），而是让最旧的一声在 20 ms 内淡出让位；20 ms 是为了避开硬停造成的直流阶跃咔嗒声。
+- **总线数写进预算表**是因为它是 A-05（分路音量）的前置条件，且被 `tests/unit/test_audio_bus_layout.gd` 硬断言 —— 改这一行会红 CI。
 
 ### 锥体/LOS 成本模型（估算依据）
 - 每守卫每 tick：网格哈希查询 O(1) + 候选（玩家 + 0–2 干扰物）→ 角度/射程过滤 → 每候选 1×`intersect_ray`（遮挡层）+ 1×光影成员测试 ≈ **1–3 射线**。
@@ -158,5 +169,6 @@
 - **ADR-002** 潜行计算模型（事件驱动 + 空间分区） → `docs/architecture/adr/adr-002-stealth-compute-model.md`
 - **ADR-003** 时间模型（time_scale 实现 RTwP） → `docs/architecture/adr/adr-003-realtime-with-pause-time-model.md`
 - **ADR-004** 光照与阴影预算（烘焙 GI + 无投影提灯 + 光 LOD） → `docs/architecture/adr/adr-004-lighting-and-shadow-budget.md`
-- **控制清单** 性能与可访问性硬约束 → `docs/architecture/control-manifest.md`
+- **ADR-005**（Draft）音频总线架构与世界模式预设（澄清 ADR-003 的「全局 lowpass」= 挂 `World` 而非 `Master`） → `docs/architecture/adr/adr-005-audio-bus-architecture-and-world-mode-presets.md`
+- **控制清单** 性能与可访问性硬约束（**§8 音频硬约束 A-01~A-05**） → `docs/architecture/control-manifest.md`
 - **下游** 逐系统 GDD（Phase 2）：潜行/RTwP/渲染/AI 各自八节 GDD，须引用本基线预算与 ADR。

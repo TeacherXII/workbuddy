@@ -1,0 +1,53 @@
+[gd_resource type="AudioBusLayout" load_steps=2 format=3]
+
+[sub_resource type="AudioEffectLowPassFilter" id="AudioEffectLowPassFilter_world"]
+resource_name = "World LPF (ADR-005 D-2/D-7/D-8)"
+cutoff_hz = 20500.0
+resonance = 0.0
+db = 1
+
+[resource]
+bus/0/name = "Master"
+bus/0/solo = false
+bus/0/mute = false
+bus/0/bypass_fx = false
+bus/0/volume_db = 0.0
+bus/0/send = "Master"
+bus/1/name = "World"
+bus/1/solo = false
+bus/1/mute = false
+bus/1/bypass_fx = false
+bus/1/volume_db = 0.0
+bus/1/send = "Master"
+bus/1/effect/0/effect = SubResource("AudioEffectLowPassFilter_world")
+bus/1/effect/0/enabled = true
+bus/2/name = "Music"
+bus/2/solo = false
+bus/2/mute = false
+bus/2/bypass_fx = false
+bus/2/volume_db = -8.0
+bus/2/send = "World"
+bus/3/name = "Ambience"
+bus/3/solo = false
+bus/3/mute = false
+bus/3/bypass_fx = false
+bus/3/volume_db = 0.0
+bus/3/send = "World"
+bus/4/name = "SFX_World"
+bus/4/solo = false
+bus/4/mute = false
+bus/4/bypass_fx = false
+bus/4/volume_db = 0.0
+bus/4/send = "World"
+bus/5/name = "Voice"
+bus/5/solo = false
+bus/5/mute = false
+bus/5/bypass_fx = false
+bus/5/volume_db = 0.0
+bus/5/send = "World"
+bus/6/name = "SFX_UI"
+bus/6/solo = false
+bus/6/mute = false
+bus/6/bypass_fx = false
+bus/6/volume_db = 0.0
+bus/6/send = "Master"

@@ -8,6 +8,18 @@ config/name="ASHEN STEP Sprint0"
 run/main_scene="res://src/main/sprint0.tscn"
 config/features=PackedStringArray("4.4")
 
+[audio]
+
+; S3-B (E11 / SAV-S5) — the project's first audio subsystem.
+; Bus tree & world-mode presets: docs/architecture/adr/adr-005-audio-bus-architecture-and-world-mode-presets.md
+; Full spec: design/audio/s3b-save-load-audio-spec.md §1.3 / §1.4 / §5.1
+; mix_rate: Godot defaults to 44100. Every shipped asset is 48 kHz, so leaving
+; the default silently resamples all of them at runtime.
+; Section order is alphabetical (application < audio < autoload < renderers) so
+; the editor's next save of this file produces no gratuitous diff.
+buses/default_bus_layout="res://arts/audio/audio_bus_layout.tres"
+driver/mix_rate=48000
+
 [autoload]
 
 ; Sprint 2 · Batch A (E11 / SAV-S3). The L2 persistence service must be a global
@@ -16,6 +28,16 @@ config/features=PackedStringArray("4.4")
 ; NOTE: src/core/save_manager.gd deliberately has NO `class_name` — Godot 4
 ; rejects a global class that shadows an autoload of the same name.
 SaveManager="*res://src/core/save_manager.gd"
+
+; S3-B (E11 / SAV-S5). The audio layer must outlive the screen that triggers it:
+; _end_load_fade() hides SCR_SLOTS at t=0.4s while the World bus is still being
+; snapped to 0dB, and a cue must not be cut off when its host screen unloads.
+; Registered AFTER SaveManager on purpose — the a11y batch's per-bus volume
+; persistence will read SaveManager.save_prefs("audio", …), and autoloads
+; _ready() in declaration order.
+; NOTE: src/core/audio_director.gd must have NO `class_name` — same Godot 4
+; autoload-shadowing trap as save_manager.gd above.
+AudioDirector="*res://src/core/audio_director.gd"
 
 [renderers]
 
