@@ -131,7 +131,7 @@
 # 归一化 RGB 已附于注释，便于直接 Color(r, g, b) 或 Theme 覆盖。
 #
 # v1.1 追认（Sprint 2）：新增 HUD_COLOR_BOUNDARY (#4E6E8A) 信息边界色；
-# HUD_COLOR_ALARM_CB 由 "= HUD_COLOR_CAUTION" 改判为 #F0C070（亮度塌缩修正）。
+# HUD_COLOR_DANGER_CB（原 HUD_COLOR_ALARM_CB，源码已退役该名）由 "= HUD_COLOR_CAUTION" 改判为 #F0C070（亮度塌缩修正）。
 # ============================================================================
 
 # 参考深色面板（对比度核算基准；实际 HUD 面板取 #16181D / #1B1B1F / #1C1F26 其一）
@@ -161,7 +161,7 @@ const HUD_COLOR_ALARM_FILL  := Color.from_string("#7A2E2E", Color.WHITE)   # (0.
 # 色盲模式（C-06）：警报语义色替换为琥珀【高明度】变体 + 图标，三重编码
 # 【v1.1 追认 · 改判】v1.0 曾写 `:= HUD_COLOR_CAUTION`（#C8862F）——与警戒同值，
 # 亮度比塌缩至 1.00:1，C-05 的「亮度」维度失效。现改为 #F0C070（vs 警戒 1.81:1）。
-const HUD_COLOR_ALARM_CB    := Color.from_string("#F0C070", Color.WHITE)   # (0.941, 0.753, 0.439)  C-02 10.55:1
+const HUD_COLOR_DANGER_CB   := Color.from_string("#F0C070", Color.WHITE)   # (0.941, 0.753, 0.439)  C-02 10.55:1
 
 # 【v1.1】脉冲频率与图标形状为独立编码维度，两种模式下【常驻生效】，不随色盲开关切换
 const PULSE_HZ_CAUTION      := 0.5   # 单拍呼吸（空心圆环 + "?"）
@@ -218,7 +218,7 @@ const PULSE_HZ_ALARM        := 2.0   # 双拍（实心三角 + "!"）；V-02 上
 | `docs/architecture/control-manifest.md` C-06 | 暴露 `#7A2E2E` → `#C8862F` 高亮 + 图标 | 警报 `#D64545` → **`#F0C070`** 高亮 + 图标 | ✅ **已同步**（v0.2，程基岩） |
 | `docs/architecture/control-manifest.md` C-07 | `#7A2E2E` 绝不单独使用 | `#D64545` 绝不单独使用；`#7A2E2E` 仅 α≤0.35 底纹 | ✅ **已同步**（v0.2，程基岩） |
 | `design/art/art-bible.md` §2.1/§2.2/§8.1/§9.1 | — | `#4E6E8A` 授权 + 描边二分 + `#F0C070` 色盲档 | ✅ 已在 v0.3 落地（林绘澄） |
-| `src/ui/hud_colors.gd:36` | `const HUD_COLOR_ALARM_CB := HUD_COLOR_CAUTION` | `:= Color("#F0C070")`；另需新增 `HUD_COLOR_BOUNDARY := Color("#4E6E8A")` | ⏳ **待 Batch C 代码改动**（E09-S5a，本轮文档收口不改代码） |
+| `src/ui/hud_colors.gd` | `const HUD_COLOR_ALARM_CB := HUD_COLOR_CAUTION`（**已退役**，更名 `HUD_COLOR_DANGER_CB`） | `:= Color("#F0C070")`；另需新增 `HUD_COLOR_BOUNDARY := Color("#4E6E8A")` | ✅ **已同步**（S3B 落地：源码退役旧名并新增 `HUD_COLOR_DANGER_CB`/`HUD_COLOR_BOUNDARY`/`HUD_COLOR_FOCUS`） |
 | `design/gdd/systems/patrol-ai.md`（§ 色盲行） | 「色盲模式替换为 `#C8862F` 高亮+图标（C-06）」 | 替换为 `#F0C070` | ⏳ **待文策渊同步**（GDD 域） |
 | `design/gdd/systems/core-hud-a11y.md` §7 | 旧 C-06 口径 | 同上 | ⏳ **待文策渊同步**（GDD 域） |
 
