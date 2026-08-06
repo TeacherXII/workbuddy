@@ -125,9 +125,17 @@ func test_light_state_changed_emitted_with_state():
 	assert_eq(_lm.get_light_state(1), EventBus.LightState.LIT,
 		"default light state must be LIT")
 	_lm.set_light_state(1, EventBus.LightState.EXTINGUISHED)
+	# ★ Sprint 3 assertion audit (A-class false green). The signature is
+	#   assert_signal_emitted_with_parameters(object, signal_name, parameters, index=-1)
+	# — the 4th parameter is `index` (int), NOT a message. Passing a String there
+	# made signal_watcher.gd:159 evaluate `index == -1` as String == int, which
+	# throws; the parameters came back <null>, diff_tool.gd:89 then threw as well,
+	# and GUT still printed:
+	#   [Passed]: ... to emit signal [light_state_changed] with parameters [1, 1], got <null>
+	# i.e. the signal payload was never verified at all. This assertion accepts no
+	# custom message, so the intent is documented here instead.
 	assert_signal_emitted_with_parameters(_lm, "light_state_changed",
-		[1, EventBus.LightState.EXTINGUISHED],
-		"light_state_changed must emit with (light_id, state)")
+		[1, EventBus.LightState.EXTINGUISHED])
 	assert_eq(_lm.get_light_state(1), EventBus.LightState.EXTINGUISHED,
 		"LightState dict must update on change")
 	_lm.toggle_light(1)

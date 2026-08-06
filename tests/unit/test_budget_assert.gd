@@ -15,6 +15,9 @@ const GuardSpawnerScript := preload("res://src/game/guard_spawner.gd")
 
 const CI_YML := "res://.github/workflows/ci.yml"
 const BUDGET_ASSERT := "res://tests/ci/budget_assert.gd"
+# ★ The C-02 carrier whitelist lives HERE, not in budget_assert.gd. Getting this
+# wrong is what turned the H28 reverse guard into a dud — see test_budget_assert_contrast_c02.
+const BUDGET_CHECKS := "res://tests/ci/budget_checks.gd"
 
 
 func test_budget_assert_contrast_c02() -> void:
@@ -32,9 +35,30 @@ func test_budget_assert_contrast_c02() -> void:
 	var ra: float = HudColors.wcag_contrast(alarm, base)
 	assert_lt(ra, 3.0,
 		"C-02 reverse: ALARM_FILL ~1.91:1 must stay far below the 7:1 floor [H28/N-12]")
-	var ba_src: String = FileAccess.get_file_as_string(BUDGET_ASSERT)
-	assert_false("HUD_COLOR_ALARM_FILL" in ba_src.split("const C02_CARRIERS")[1].split("]")[0],
+	# ★ Sprint 3 assertion audit (B-class dud). This block used to read
+	# BUDGET_ASSERT, but `const C02_CARRIERS` is declared in budget_checks.gd.
+	# split() therefore returned a 1-element array, `[1]` threw
+	#   SCRIPT ERROR: Out of bounds get index '1' (on base: 'PackedStringArray')
+	# and the entire assertion EVAPORATED — while GUT still reported this test as
+	# passing. The N-12 reverse guard we thought we had never once executed.
+	var bc_src: String = FileAccess.get_file_as_string(BUDGET_CHECKS)
+	var c02_parts := bc_src.split("const C02_CARRIERS")
+	# Parse guard: if the declaration is ever moved or renamed again, fail LOUD
+	# right here instead of silently vaporising the two assertions below.
+	assert_eq(c02_parts.size(), 2,
+		"C-02 parse guard: budget_checks.gd must declare exactly one `const C02_CARRIERS` [H28/B-class]")
+	# Slice out just the array literal, so the explanatory comment above the
+	# declaration (which legitimately names ALARM_FILL) can never be mistaken
+	# for a whitelist entry.
+	var c02_whitelist := "" if c02_parts.size() < 2 else c02_parts[1].split("]")[0]
+	assert_false("HUD_COLOR_ALARM_FILL" in c02_whitelist,
 		"C-02 reverse: ALARM_FILL must NOT be in the C02 whitelist (N-12 false-red guard) [H28]")
+	# ★ The mirror half that batchd-qa-plan.md:165 flagged as an open hole:
+	# proving ALARM_FILL is ABSENT is worthless if the list is EMPTY. An empty
+	# whitelist makes _check_contrast_c02() loop zero times and the scanner rots
+	# silently green. Assert the positive membership too.
+	assert_true("HUD_COLOR_CARRIER" in c02_whitelist,
+		"C-02: CARRIER MUST be registered in the whitelist — an empty list neuters the scan [H28/N-11]")
 
 
 func test_budget_assert_is_warn_only() -> void:
