@@ -132,16 +132,21 @@ func test_n7b_gate_pattern_is_extractable_and_compiles() -> void:
 	# test red the build. That is exactly how the first run of PR #12 failed,
 	# and it is the same shape as the Batch D incident. Reduce to a bool first:
 	# GUT then only ever prints `true`.
-	var line_found := line.length() > 0 and line.contains(N7B_MARKER)
+	# NB: the marker is on the COMMENT line above the gate, so the extracted
+	# grep line does not carry it. What identifies the line is the grep itself.
+	var line_found := line.contains(GREP_PREFIX)
 	assert_true(line_found,
-		"the N-7b gate must still be findable in ci.yml by its marker comment")
+		"the N-7b gate must still be findable in ci.yml below its marker comment")
 	var pattern := _n7b_pattern()
+	# Only the loader alternative is checked as a LITERAL. The parse-diagnostic
+	# alternative is spelled with bracket classes ([Pp]arse [Ee]rror), so it has
+	# no literal form to look for — its coverage is proven by actually matching
+	# both spellings in the behavioural tests below, which is the stronger check.
 	var pattern_ok := pattern.length() > 0 \
-		and pattern.contains(F_ALT_LOADFAIL_A + F_ALT_LOADFAIL_B) \
-		and (pattern.contains("Parse Error") or pattern.contains("Parse error"))
+		and pattern.contains(F_ALT_LOADFAIL_A + F_ALT_LOADFAIL_B)
 	assert_true(pattern_ok,
-		"the N-7b pattern must cover both the loader's failure line and the "
-		+ "engine's title-case parse diagnostic")
+		"the N-7b pattern must extract and must still carry the loader "
+		+ "failure alternative")
 	var re := RegEx.new()
 	assert_eq(re.compile(pattern), OK,
 		"the N-7b pattern must be a valid regular expression")
