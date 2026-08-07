@@ -15,7 +15,7 @@ extends Control
 # ── Division of labour ──────────────────────────────────────────────────────
 # This panel owns WIDGETS and the PERSISTED FIELD MODEL. It owns no audio
 # policy: what a cue costs in dB is AudioDirector's business, and the bus tree
-# is ADR-005's. All this file does is move three numbers onto three buses and
+# is ADR-005's. All this file does is move five numbers onto five buses and
 # one bool onto AudioDirector.
 #
 # ── Headless discipline (mirrors save_slots_screen.gd) ──────────────────────
@@ -36,7 +36,9 @@ extends Control
 const PREFS_SECTION := "audio"
 
 const BUS_MASTER := "Master"
-const BUS_WORLD := "World"
+const BUS_MUSIC := "Music"
+const BUS_AMBIENCE := "Ambience"
+const BUS_SFX_WORLD := "SFX_World"
 const BUS_SFX_UI := "SFX_UI"
 
 ## Slider range. 100% is UNITY (0 dB), which is where ADR-005 D-1 calibrated
@@ -55,13 +57,15 @@ const DEFAULT_PERCENT := 100.0
 const MIN_DB := -40.0
 const MAX_DB := 6.0
 
-## The shipped rows, as DATA. A-05 nominally names five independent routes
-## (Master / Music / Ambience / SFX_World / SFX_UI); this batch exposes three,
-## with World standing in for its three children. Adding the remaining two is
-## one line each here — the bus tree (ADR-005 D-1) already supports them.
+## The shipped rows, as DATA. A-05's five independent routes
+## (Master / Music / Ambience / SFX_World / SFX_UI) are now all exposed; the
+## parent World bus is intentionally NOT a slider (its three children are
+## individually controllable).
 const BUS_ROWS := [
 	{"bus": BUS_MASTER, "key": "master_percent", "label": "主音量"},
-	{"bus": BUS_WORLD, "key": "world_percent", "label": "世界音量"},
+	{"bus": BUS_MUSIC, "key": "music_percent", "label": "音乐音量"},
+	{"bus": BUS_AMBIENCE, "key": "ambience_percent", "label": "环境音量"},
+	{"bus": BUS_SFX_WORLD, "key": "sfx_world_percent", "label": "世界音效音量"},
 	{"bus": BUS_SFX_UI, "key": "sfx_ui_percent", "label": "界面音效音量"},
 ]
 

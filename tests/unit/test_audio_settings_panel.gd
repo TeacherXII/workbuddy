@@ -8,7 +8,7 @@
 # ── ★ THIS FILE MOVES THE GLOBAL MIXER ★ ───────────────────────────────────
 # Constructing the panel writes AudioServer bus volumes, which are process-wide.
 # tests/unit/test_audio_bus_layout.gd asserts the AUTHORED calibration
-# (Master/World/SFX_UI all at 0 dB) by reading the live server, so if this file
+# (every bus at 0 dB) by reading the live server, so if this file
 # ran before it and left a slider at 50%, that file would go red for a reason
 # invisible in its own source.
 #
@@ -176,7 +176,11 @@ func test_each_slider_drives_its_own_bus_and_no_other() -> void:
 	assert_almost_eq(_bus_db("Master"), 0.0, DB_TOLERANCE,
 		"and it must not touch Master — five independent routes is the whole "
 		+ "of A-05")
-	assert_almost_eq(_bus_db("World"), 0.0, DB_TOLERANCE)
+	# The other three exposed routes must be equally undisturbed. World is
+	# deliberately absent: it is the PARENT bus and carries no slider.
+	assert_almost_eq(_bus_db("Music"), 0.0, DB_TOLERANCE)
+	assert_almost_eq(_bus_db("Ambience"), 0.0, DB_TOLERANCE)
+	assert_almost_eq(_bus_db("SFX_World"), 0.0, DB_TOLERANCE)
 
 	p.set_bus_percent("Master", 25.0)
 	assert_almost_eq(_bus_db("Master"), -12.0412, DB_TOLERANCE)
@@ -268,7 +272,9 @@ func test_the_ui_sound_switch_leaves_every_bus_volume_alone() -> void:
 		"muting UI FEEDBACK is not the same as pulling the SFX_UI fader down; "
 		+ "the two are independent controls and the panel offers both")
 	assert_almost_eq(_bus_db("Master"), 0.0, DB_TOLERANCE)
-	assert_almost_eq(_bus_db("World"), 0.0, DB_TOLERANCE)
+	assert_almost_eq(_bus_db("Music"), 0.0, DB_TOLERANCE)
+	assert_almost_eq(_bus_db("Ambience"), 0.0, DB_TOLERANCE)
+	assert_almost_eq(_bus_db("SFX_World"), 0.0, DB_TOLERANCE)
 
 
 # =============================================================================
@@ -277,7 +283,7 @@ func test_the_ui_sound_switch_leaves_every_bus_volume_alone() -> void:
 func test_settings_round_trip_through_the_preference_store() -> void:
 	var p := _make_panel()
 	p.set_bus_percent("Master", 60.0)
-	p.set_bus_percent("World", 30.0)
+	p.set_bus_percent("Music", 30.0)
 	p.set_bus_percent("SFX_UI", 45.0)
 	p.set_ui_sound_enabled(false)
 	p.save_settings()
@@ -288,17 +294,17 @@ func test_settings_round_trip_through_the_preference_store() -> void:
 	# A SECOND panel over the same store — i.e. the next session.
 	var p2 := _make_panel()
 	assert_almost_eq(p2.bus_percent("Master"), 60.0, 0.001)
-	assert_almost_eq(p2.bus_percent("World"), 30.0, 0.001)
+	assert_almost_eq(p2.bus_percent("Music"), 30.0, 0.001)
 	assert_almost_eq(p2.bus_percent("SFX_UI"), 45.0, 0.001)
 	assert_false(p2.ui_sound_enabled(), "the UI-sound choice must survive a restart")
 
 	# _ready() backfills the WIDGETS too, not just the numbers.
-	assert_almost_eq(float(p2._sliders["World"].value), 30.0, 0.001,
+	assert_almost_eq(float(p2._sliders["Music"].value), 30.0, 0.001,
 		"the restored value must be visible on the control the player looks at")
 	assert_false(p2._ui_check.button_pressed)
 
 	# And the restored state is on the live mixer, not merely in memory.
-	assert_almost_eq(_bus_db("World"), AudioSettingsPanelScript.percent_to_db(30.0),
+	assert_almost_eq(_bus_db("Music"), AudioSettingsPanelScript.percent_to_db(30.0),
 		DB_TOLERANCE)
 	assert_false(_director.ui_sound_enabled,
 		"restoring prefs must re-apply the silence the player chose")
@@ -311,8 +317,11 @@ func test_a_missing_audio_section_installs_the_shipped_defaults() -> void:
 	assert_false(_sm.has_prefs_section("audio"), "fixture: a virgin store")
 	var p := _make_panel()
 
+	# All five A-05 routes ship at unity, not just the ones a test remembered.
 	assert_almost_eq(p.bus_percent("Master"), 100.0, 0.001)
-	assert_almost_eq(p.bus_percent("World"), 100.0, 0.001)
+	assert_almost_eq(p.bus_percent("Music"), 100.0, 0.001)
+	assert_almost_eq(p.bus_percent("Ambience"), 100.0, 0.001)
+	assert_almost_eq(p.bus_percent("SFX_World"), 100.0, 0.001)
 	assert_almost_eq(p.bus_percent("SFX_UI"), 100.0, 0.001)
 	assert_true(p.ui_sound_enabled(), "UI sound ships ON")
 	assert_almost_eq(_bus_db("Master"), 0.0, DB_TOLERANCE,
@@ -322,12 +331,14 @@ func test_a_missing_audio_section_installs_the_shipped_defaults() -> void:
 ## Field-by-field fallback: a prefs file written before a fader existed must not
 ## zero the faders it does not mention.
 func test_a_partial_audio_section_fills_the_gaps_with_defaults() -> void:
-	_sm.save_prefs("audio", {"world_percent": 20.0})
+	_sm.save_prefs("audio", {"music_percent": 20.0})
 	var p := _make_panel()
 
-	assert_almost_eq(p.bus_percent("World"), 20.0, 0.001, "the stored key wins")
+	assert_almost_eq(p.bus_percent("Music"), 20.0, 0.001, "the stored key wins")
 	assert_almost_eq(p.bus_percent("Master"), 100.0, 0.001,
 		"an absent key falls back to the default, never to 0")
+	assert_almost_eq(p.bus_percent("Ambience"), 100.0, 0.001)
+	assert_almost_eq(p.bus_percent("SFX_World"), 100.0, 0.001)
 	assert_almost_eq(p.bus_percent("SFX_UI"), 100.0, 0.001)
 	assert_true(p.ui_sound_enabled(), "an absent switch reads as ON")
 
