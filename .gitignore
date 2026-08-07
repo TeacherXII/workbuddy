@@ -28,3 +28,6 @@ __pycache__/
 # ===== CI artifact temp (downloaded gut_output.txt zip; not game content) =====
 .tmp_gut/
 .tmp_gut.zip
+
+# ===== Godot asset import metadata (auto-generated; project policy does not track) =====
+*.import
