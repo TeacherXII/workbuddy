@@ -23,6 +23,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── 0. Guard: .godot/ editor cache must never be committed ──
+      # .godot/ holds Godot's generated import + global class cache. It is
+      # gitignored (see .gitignore) and rebuilt fresh in CI via the --import
+      # step below (required so global-class references like A11ySettings in
+      # time_controller.gd resolve). If it ever gets committed, stale caches
+      # would shadow the rebuild and cause non-reproducible CI. Fail loudly if
+      # any .godot/ path is tracked.
+      - name: Guard .godot/ not tracked
+        run: |
+          if git ls-files --error-unmatch '.godot/' >/dev/null 2>&1; then
+            echo "::error::.godot/ is tracked in git — must stay gitignored (see .gitignore). Remove it and recommit."
+            git ls-files '.godot/' | head
+            exit 1
+          fi
+          echo ">>> .godot/ not tracked — CI will rebuild cache via --import."
+
       # ── 1. Clone GUT (pin to Godot 4.x compatible release) ─────
       - name: Clone GUT test framework
         run: |
@@ -243,17 +259,18 @@ jobs:
           # (local python 3.13): 0 findings across tests/unit.
           echo ">>> assert_lint A-class (FAIL-CLOSED gate)"
           "$PY" tests/ci/assert_lint.py --tests-dir tests/unit || exit 1
-          # B-class (asserts that never executed) is REPORT-ONLY for now.
-          # Its current heuristic (static count vs runtime count) false-positives
-          # on DELIBERATELY branch-divergent tests that early-return (e.g.
-          # test_save_ui.gd:841 skips 1 of 6 asserts by design when the hue
-          # collapse is absent). Promoting it to fail-closed would red main for
-          # sound tests. Keep it visible via warning until the heuristic learns
-          # to tolerate if/return divergence (owner: engineering-lead).
-          echo ">>> assert_lint B-class (report-only)"
-          "$PY" tests/ci/assert_lint.py --tests-dir tests/unit --gut-log gut_output.txt || \
-            echo "::warning::assert_lint B-class flagged potential non-executing assertions (report-only; not gating). See engineering-lead follow-up."
-          echo ">>> assert_lint A-class clean — no silent no-op assertions."
+          # B-class (asserts that never executed) is now FAIL-CLOSED.
+          # Its heuristic was upgraded to recognise DELIBERATELY branch-divergent
+          # tests that early-return (e.g. test_save_ui.gd:841 skips 1 of 6 asserts
+          # by design when the hue collapse is absent). Those are downgraded to an
+          # informational note (FEWER_ASSERTS_BRANCH_DIVERGENT) and do NOT fail the
+          # build; only a test with NO loop, NO conditional early-return and NO
+          # SCRIPT ERROR that still ran fewer asserts than its source is treated as
+          # a genuine defect and fails the job. Verified locally on main: 0 fatal
+          # B-class findings; 1 informational (the test_save_ui.gd:841 case).
+          echo ">>> assert_lint B-class (FAIL-CLOSED gate)"
+          "$PY" tests/ci/assert_lint.py --tests-dir tests/unit --gut-log gut_output.txt || exit 1
+          echo ">>> assert_lint B-class clean — no silent no-op assertions."
 
       # ── 4. Post GUT summary as a public commit status (host step) ──
       # Runs on the runner HOST (not the godot-ci container) with a reliable

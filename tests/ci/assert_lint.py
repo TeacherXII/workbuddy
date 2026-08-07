@@ -173,6 +173,62 @@ def iter_assert_calls(text):
         yield m.group(1), text[start:i-1], text[:m.start()].count("\n") + 1
 
 
+# Branch-head keywords that open a conditional block. A `return` nested inside
+# one of these is a *conditional early-return*; the function's actual assert
+# count is legitimately branch-dependent and must NOT be treated as a missing
+# assertion (see B-class downgrade in scan_b_class).
+_BRANCH_HEAD = re.compile(r"^\s*(if|elif|else|match|case)\b")
+_RETURN = re.compile(r"\breturn\b")
+
+
+def func_has_conditional_return(lines):
+    """True iff the function body contains a `return` nested inside a branch.
+
+    `lines` is the raw function body (one entry per source line, indentation
+    preserved). Two branch forms are recognised:
+
+      - block form : `if x:` ... then a deeper-indented `return`
+      - inline form: `if x: return` (branch head + return on one line)
+
+    A *top-level* `return` (indent equal to the function body itself, outside
+    any branch) is NOT a conditional early-return and does not count.
+
+    Algorithm: track the indentation of the most recent branch head
+    (`branch_indent`). When a branch head is seen, record its indent and return
+    True immediately if the same line also carries a `return` (inline form). A
+    `return` line indented deeper than the active branch head is a conditional
+    early-return (block form -> True). Any later line that dedents to/below the
+    branch head (and is not itself a branch head) closes the branch block, so a
+    subsequent top-level `return` is no longer counted. `elif`/`else`/`case`
+    are themselves branch heads and simply re-arm `branch_indent`.
+
+    Note: functions containing `for`/`while` are excluded from the B-class
+    fatal decision by the `loops == 0` guard in scan_b_class, so a `return`
+    living only inside a loop is never decisive either way.
+    """
+    branch_indent = None
+    for raw in lines:
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        if _BRANCH_HEAD.match(raw):
+            branch_indent = indent
+            # inline form: branch head and return on the same line
+            if _RETURN.search(stripped):
+                return True
+            continue
+        if _RETURN.search(stripped):
+            # block form: return deeper than the active branch head
+            if branch_indent is not None and indent > branch_indent:
+                return True
+            continue
+        # any other line that dedents to/below the branch head closes the block
+        if branch_indent is not None and indent <= branch_indent:
+            branch_indent = None
+    return False
+
+
 def scan_a_class(tests_dir):
     findings = []
     for f in sorted(glob.glob(os.path.join(tests_dir, "**", "*.gd"), recursive=True)):
@@ -204,21 +260,37 @@ def scan_a_class(tests_dir):
 
 
 def scan_b_class(tests_dir, gut_log):
-    """Compare per-test static assertion count against the runtime count."""
+    """Compare per-test static assertion count against the runtime count.
+
+    Returns a (findings, info) tuple:
+      - findings  fatal B-class defects (counts toward exit 1)
+      - info      informational B-class notes (branch-divergent by design;
+                  still printed, but never fails the build)
+    """
     static = {}
+    func_lines = {}
     for f in sorted(glob.glob(os.path.join(tests_dir, "**", "*.gd"), recursive=True)):
         res = "res://" + f.replace("\\", "/")
         cur = None
+        buf = None
         for i, raw in enumerate(open(f, encoding="utf-8").read().split("\n")):
             l = strip_comment(raw)
             m = re.match(r"^func\s+([A-Za-z_0-9]+)\s*\(", l)
             if m:
                 cur = m.group(1)
                 static[(res, cur)] = {"line": i + 1, "asserts": 0, "loops": 0}
+                buf = []
+                func_lines[(res, cur)] = buf
                 continue
             if cur is None: continue
+            buf.append(l)
             static[(res, cur)]["asserts"] += len(ASSERT_CALL.findall(l))
             if re.match(r"^\s*(for|while)\b", l): static[(res, cur)]["loops"] += 1
+
+    # Classify which test functions intentionally diverge via a conditional
+    # early-return (so a lower runtime assert count is by design, not a defect).
+    for key, buf in func_lines.items():
+        static[key]["cond_return"] = func_has_conditional_return(buf)
 
     runtime = {}; script = None; func = None
     res_re = re.compile(r"^\s*\[(Passed|Failed|Pending|Risky)\]")
@@ -237,6 +309,7 @@ def scan_b_class(tests_dir, gut_log):
         if l.startswith("SCRIPT ERROR"): runtime[(script, func)]["errors"] += 1
 
     findings = []
+    info = []
     for (script, fn), d in static.items():
         if not fn.startswith("test_"): continue
         r = runtime.get((script, fn))
@@ -247,10 +320,19 @@ def scan_b_class(tests_dir, gut_log):
                              f"{r['errors']} SCRIPT ERROR(s); "
                              f"{r['n']} asserts ran vs {d['asserts']} in source"))
         elif r["n"] < d["asserts"] and d["loops"] == 0:
-            findings.append((script, d["line"], fn, "FEWER_ASSERTS_THAN_SOURCE",
-                             f"{r['n']} ran vs {d['asserts']} in source "
-                             f"- an assertion did not execute"))
-    return findings
+            if d.get("cond_return"):
+                # Branch-divergent by design: a conditional early-return means
+                # the assert count legitimately varies with the branch taken.
+                # Surface it for visibility but never fail the build.
+                info.append((script, d["line"], fn, "FEWER_ASSERTS_BRANCH_DIVERGENT",
+                             f"{r['n']} ran vs {d['asserts']} in source - "
+                             f"branch-divergent (conditional early-return) by design, "
+                             f"not a no-op assertion"))
+            else:
+                findings.append((script, d["line"], fn, "FEWER_ASSERTS_THAN_SOURCE",
+                                 f"{r['n']} ran vs {d['asserts']} in source "
+                                 f"- an assertion did not execute"))
+    return findings, info
 
 
 SELFTEST_FIXTURE = '''extends GutTest
@@ -291,6 +373,31 @@ def selftest():
           f"{sum(1 for l in planted if l in by_line)} detected; "
           f"{len(clean)} clean lines, "
           f"{sum(1 for l in clean if l in by_line)} false positives")
+
+    # ── B-class: conditional early-return recognizer (func_has_conditional_return) ──
+    # Must detect conditional early-returns (block + inline + match/case forms).
+    cr_true = [
+        "func test_a():\n\tif x:\n\t\treturn\n\tassert_eq(a,b)",          # block form
+        "func test_b():\n\tif x: return\n\tassert_eq(a,b)",            # inline form
+        "func test_c():\n\tmatch y:\n\t\t_:\n\t\t\treturn",            # match/case form
+    ]
+    # Must NOT flag a plain top-level return or a function with no return.
+    cr_false = [
+        "func test_d():\n\tassert_eq(a,b)\n\treturn",                  # top-level return
+        "func test_e():\n\tassert_eq(a,b)\n\tassert_true(c)",          # no return at all
+    ]
+    for src in cr_true:
+        if not func_has_conditional_return(src.split("\n")):
+            print("  SELFTEST FAIL: conditional early-return NOT detected (expected True)")
+            ok = False
+    for src in cr_false:
+        if func_has_conditional_return(src.split("\n")):
+            print("  SELFTEST FAIL: false positive conditional-return (expected False)")
+            ok = False
+    print(f"  selftest: conditional-return recognizer "
+          f"{sum(1 for s in cr_true if func_has_conditional_return(s.split(chr(10))))}/{len(cr_true)} true, "
+          f"{sum(1 for s in cr_false if not func_has_conditional_return(s.split(chr(10))))}/{len(cr_false)} false")
+
     return ok
 
 
@@ -312,17 +419,20 @@ def main():
     for f, ln, name, kind, detail in findings:
         print(f"  {kind}  {f}:{ln}  {name}\n      {detail}")
 
-    b = []
+    b_fatal, b_info = [], []
     if a.gut_log and os.path.exists(a.gut_log):
-        b = scan_b_class(a.tests_dir, a.gut_log)
-        print(f"[assert-lint][B] assertions that never executed: {len(b)} finding(s)")
-        for script, ln, fn, kind, detail in b:
+        b_fatal, b_info = scan_b_class(a.tests_dir, a.gut_log)
+        print(f"[assert-lint][B] assertions that never executed: "
+              f"{len(b_fatal)} fatal, {len(b_info)} informational")
+        for script, ln, fn, kind, detail in b_fatal:
             print(f"  {kind}  {script}:{ln}  {fn}\n      {detail}")
+        for script, ln, fn, kind, detail in b_info:
+            print(f"  {kind}  {script}:{ln}  {fn}\n      {detail} (informational)")
     else:
         print("[assert-lint][B] skipped (no --gut-log)")
 
-    total = len(findings) + len(b)
-    print(f"[assert-lint] total: {total}")
+    total = len(findings) + len(b_fatal)
+    print(f"[assert-lint] total: {total} (informational not counted)")
     return 1 if total else 0
 
 
