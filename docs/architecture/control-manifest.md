@@ -116,7 +116,7 @@
 | A-02 | 音频**永不作为唯一通道** | 每条承载信息的音必有**字幕 + 视觉**孪生 | = AUD-A2，继承 C-05 / X-02。S3-B 六个存档/读档事件全部满足；读档成功的听觉回归与遮罩**同帧读同一个 `world_fade_alpha()` 返回值**，不是两条独立曲线 |
 | A-03 | 失败 / 拒绝音响度上限 | **绝不高于对应的成功音**（音频规格 §3 硬点 1） | = AUD-A3。不用音量制造惊吓。工程实现见 `AudioDirector.effective_level_db()`（纯函数，故意不含重触发阶梯，好让单次电平可被无时钟断言） |
 | A-04 | 周期性振幅调制上限 | **禁止 > 3 Hz** | = AUD-A4，**V-01「禁 >3Hz 亮灭」的听觉对偶**。重复触发须走音频规格 §2.5 重触发阶梯（`AudioDirector` 常量 `UI_RETRIGGER_SUPPRESS_MS = 80` / `UI_REPEAT_FLOOR_DB = -9`），不得靠调用方自律 |
-| A-05 | 分路音量 + 「UI 音」开关 | Master / Music / Ambience / SFX_World / SFX_UI **五路独立** + UI 音总开关，进设置 | = AUD-A5。**S3-B 不做 UI**，但两个前置条件已就绪：总线树（ADR-005 D-1，`test_audio_bus_layout.gd` 断言）与持久化通道（`SaveManager.save_prefs("audio", …)`）。★ 关闭 UI 音后**字幕与视觉通道不得随之失效**（由 A-02 兜底） |
+| A-05 | 分路音量 + 「UI 音」开关 | Master / Music / Ambience / SFX_World / SFX_UI **五路独立** + UI 音总开关，进设置 | = AUD-A5。**已实现（`src/ui/audio_settings_panel.gd` + `.tscn`）**：三条滑杆（Master / World / SFX_UI，百分比→dB 按**振幅线性** `linear_to_db(p/100)`，夹在 [-40, +6] dB）+「UI 音效」开关，经 `SaveManager.save_prefs("audio", …)` 存盘、`_ready()` 回填。★ **门控范围仅 UI 反馈音**：`AudioDirector.ui_sound_enabled` 只在 `play_cue()` 首行拦截，**不触及**世界总线、读档淡入与世界模式预设；关闭后**字幕与视觉通道照常**（A-02 兜底，已在 `test_audio_cues.gd` 反向断言）。⚠ **未竟**：Music / Ambience / SFX_World 三路尚未各自暴露滑杆（当前由父线 World 统管），总线树已就绪、面板为数据驱动（`BUS_ROWS`），补行即可 |
 
 **架构锚点（非新增编号）**：总线树与三个世界预设的取值在 `docs/architecture/adr/adr-005-…md`（D-1~D-8）。`AUD-V6`（模式切换 120 ms 缓动、单帧增益变化 ≤3 dB）是 **V-06「转场缓动，禁硬切」的听觉对偶**，归 V-06 管辖，不另编号。
 
@@ -128,6 +128,6 @@
 | A-02 | 人工 + `test_save_ui.gd` **两条**路径已断言「音 + 孪生通道」同时到场：存档成功（cue + 「系统」字幕）、动作被拒（cue + `denial_hint()`）。其余四个事件目前只有人工核对 | 部分机器可查 |
 | A-03 | 人工（`effective_level_db()` 已做成纯函数，断言随时可加） | 评审 |
 | A-04 | 人工（阶梯已实现且可 `set_retrigger_ladder_enabled(false)` 关闭以做确定性断言） | 评审 |
-| A-05 | `tests/unit/test_audio_bus_layout.gd`（**硬失败**，非 §7 的 WARN-ONLY）守其前置的五路总线树与路由 | 机器可查 |
+| A-05 | `tests/unit/test_audio_bus_layout.gd` 守其前置的五路总线树与路由；`tests/unit/test_audio_settings_panel.gd` 守百分比→dB 映射、单路互不串扰、开关直达 `AudioDirector`、prefs 往返与「不误伤邻近 a11y 段」；`tests/unit/test_audio_cues.gd` 守★ 关 UI 音后字幕/视觉不失效（均**硬失败**，非 §7 的 WARN-ONLY） | 机器可查 |
 
 > **与 §7 的区别**：§7 是构建期**警告**，不阻断。§8 的机器可查项走 GUT 单元测试，**会红、会阻断**。这是刻意的：总线路由错了没有任何听觉症状（游戏照样出声，只是出错了地方），只有断言能抓。

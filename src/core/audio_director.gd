@@ -116,6 +116,23 @@ var _ladder_enabled := true
 var _last_play_ms: Dictionary = {}
 var _ladder_step: Dictionary = {}
 
+# ── A-05「UI 音」总开关 (control-manifest §8 A-05) ──────────────────────────
+# Gates play_cue() and NOTHING ELSE. Scope is deliberate and load-bearing:
+#
+#   · It does NOT touch the World bus, the load fade or the world-mode presets.
+#     Those are not UI feedback, and a player who silenced the interface never
+#     asked for the world to go quiet too.
+#   · It does NOT suppress the SUBTITLE or the visual twin. A-02 says audio is
+#     never the only channel, so turning this off must LOSE nothing — the cue
+#     is a redundant third channel by construction. The subtitle sink lives on
+#     save_slots_screen.gd and is not routed through here, which is what makes
+#     that guarantee structural rather than a promise. Asserted in
+#     tests/unit/test_audio_cues.gd.
+#
+# Public (no leading underscore) because the settings panel writes it through
+# set_ui_sound_enabled() and tests read it back.
+var ui_sound_enabled := true
+
 # ── Misc ────────────────────────────────────────────────────────────────────
 var _tc: Node = null
 var _last_ms := 0
@@ -213,6 +230,14 @@ func fade_sink(phase: String, alpha: float) -> void:
 ## Spec §5.5. `gain_db` is the caller's and is the ONLY static source of
 ## relative level (AUD-G1). AUD-R1 may subtract on top of it for repeats.
 func play_cue(cue: String, gain_db: float = 0.0) -> void:
+	# A-05. FIRST statement on purpose: when the player has switched UI sound
+	# off, nothing downstream should run — not the retrigger ladder (whose state
+	# would then advance on cues nobody heard, so the first cue AFTER re-enabling
+	# would come back attenuated), and not cue_log (which is the observability
+	# record of what SOUNDED; logging silent cues would make it lie).
+	if not ui_sound_enabled:
+		return
+
 	if not CUE_TABLE.has(cue):
 		push_warning("AudioDirector: unknown cue '%s'" % cue)
 		return
@@ -269,6 +294,14 @@ func resolve_stream_path(cue: String) -> String:
 	if not CUE_TABLE.has(cue):
 		return ""
 	return str(CUE_TABLE[cue]["path"])
+
+
+## A-05. The settings panel's「UI 音效」checkbox writes here. Deliberately does
+## NOT stop voices already in flight: a 114 ms cue that was already sounding
+## when the box was unticked is finished, not chopped — a hard stop mid-decay is
+## a DC step, i.e. the click UI_STEAL_FADE_SEC exists to avoid.
+func set_ui_sound_enabled(on: bool) -> void:
+	ui_sound_enabled = on
 
 
 ## Spec §5.5. QA turns the ladder off to make single-shot levels deterministic.
