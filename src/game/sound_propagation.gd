@@ -73,6 +73,7 @@ func _ready() -> void:
 
 func set_event_bus(bus: EventBus) -> void:
 	_bus = bus
+	_bind_bus()
 
 
 func set_grid(grid: SpatialHashGrid3D) -> void:
