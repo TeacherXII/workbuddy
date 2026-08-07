@@ -5,7 +5,7 @@
 | **项目** | ASHEN STEP《灰烬之步》 |
 | **引擎 / 平台** | Godot 4.4 · GDScript ｜ PC（键鼠 + 手柄） |
 | **Sprint / 批次** | Sprint 3 · S3-B ｜ Story **SAV-S5**（Epic **E11**） |
-| **文档版本** | **v1.1**（O-1 裁决收口版：Option A 全局焦点环 `#F0C070`，理由更正为「C-02 达标」非「C-06 旧值作废」；O-2/O-4/O-5 采纳建议闭环；O-3 挂起待 engineering-lead；§5.3 收口清单按文件锁重分工，补入林绘澄追加取证的 4 处遗漏）｜ v1.0 = 初版规格稿 |
+| **文档版本** | **v1.1**（O-1 裁决收口版：Option A 全局焦点环 `#F0C070`，理由更正为「C-02 达标」非「C-06 旧值作废」；O-2/O-4/O-5 采纳建议闭环；O-3 后于 S3-B follow-up 收口（见 §5.1）；§5.3 收口清单按文件锁重分工，补入林绘澄追加取证的 4 处遗漏）｜ v1.0 = 初版规格稿 |
 | **作者** | 文策渊（Game Designer / Narrative & UX） |
 | **性质** | **规格文档，非实现文档**。本文只定义「做成什么样」，不含 GDScript。下游：林绘澄（视觉资产）· 阮和鸣（音频资产）· 程基岩（实现）· 严守真（QA 用例） |
 | **上游权威** | `production/epics/E11-save-manager.md`（SAV-S5 AC）· `design/gdd/systems/save-system.md` §5/§7/§8（能力单一真相源）· `production/sprints/sprint3-plan.md` §2 S3-B / §7 · `docs/architecture/control-manifest.md` v0.2（C-01/C-02/C-06/X-02/V-01）· `design/art/art-bible.md` v0.3 §8.1/§8.3/§9.4 · `design/art/hud-a11y-signature.md` v1.1 §2/§3/§5 · `design/art/accessibility-matrix.md` v0.2 · `design/ux/ux-spec.md` §1.3/§2.3/§3.1/§3.3 |
