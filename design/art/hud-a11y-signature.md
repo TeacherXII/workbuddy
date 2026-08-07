@@ -204,10 +204,10 @@ const PULSE_HZ_ALARM        := 2.0   # 双拍（实心三角 + "!"）；V-02 上
 **待同步（下游文档须按本签字稿改色，属落实动作，不改色值本身）**：
 | 文档 | 位置 | 现状 | 应改为 |
 | --- | --- | --- | --- |
-| `design/ux/ux-spec.md` | § ALERT（L194 / L227） | 「屏角脉冲 + 守卫处血锈 `#7A2E2E`」「`#7A2E2E` + 脉动 + 图标」 | 边框/脉冲/图标 → `#D64545`；`#7A2E2E` 仅作低不透明填充（白字之上） |
+| ~~`design/ux/ux-spec.md`~~ | § ALERT（L194 / L227） | ~~「屏角脉冲 + 守卫处血锈 `#7A2E2E`」「`#7A2E2E` + 脉动 + 图标」~~ | ✅ **已同步**（Sprint 3，林绘澄；accessibility-matrix L249 同）：L194 暴露 `#D64545` + `#7A2E2E` 仅填充；L227 色盲档 `#F0C070`（C-06） |
 | ~~`design/assets/entity-inventory.md`~~ | #22 暴露 ALERT（L44） | ~~「`#7A2E2E` + 脉动 + 图标」~~ | **✅ 已同步**：语义色 `#D64545`；`#7A2E2E` 标注「仅填充 α≤0.35」；色盲档已改 `#F0C070` |
 | ~~`design/assets/asset-manifest.md`~~ | #暴露 ALERT（L251）· 行 3（L267） | ~~「`#7A2E2E` + 脉动 + 图标」~~ | **✅ 已同步**：语义色 `#D64545`；行 3 危险语义色由 `#7A2E2E` → `#D64545`；色盲档已改 `#F0C070` |
-| `design/gdd/systems/core-hud-a11y.md` | §5 反馈（L50） | 「暴露 `#7A2E2E`+脉动+图标」 | 同步为 `#D64545` 语义 + `#7A2E2E` 仅填充 |
+| ~~`design/gdd/systems/core-hud-a11y.md`~~ | §5 反馈（L50） | ~~「暴露 `#7A2E2E`+脉动+图标」~~ | ✅ **已同步**：GDD §5 L50 暴露 `#D64545`（D7 签字；`#7A2E2E` 仅 α≤0.35 填充）+ 脉动+图标（C-07） |
 
 > 上述同步不改变任何数值基线或约束编号，仅把「暴露 ALERT 的边框/脉冲/图标色」从不合格的 `#7A2E2E` 校正为本签字稿授权的 `#D64545`，消除 D7 落地残留。
 
@@ -219,10 +219,10 @@ const PULSE_HZ_ALARM        := 2.0   # 双拍（实心三角 + "!"）；V-02 上
 | `docs/architecture/control-manifest.md` C-07 | `#7A2E2E` 绝不单独使用 | `#D64545` 绝不单独使用；`#7A2E2E` 仅 α≤0.35 底纹 | ✅ **已同步**（v0.2，程基岩） |
 | `design/art/art-bible.md` §2.1/§2.2/§8.1/§9.1 | — | `#4E6E8A` 授权 + 描边二分 + `#F0C070` 色盲档 | ✅ 已在 v0.3 落地（林绘澄） |
 | `src/ui/hud_colors.gd` | `const HUD_COLOR_ALARM_CB := HUD_COLOR_CAUTION`（**已退役**，更名 `HUD_COLOR_DANGER_CB`） | `:= Color("#F0C070")`；另需新增 `HUD_COLOR_BOUNDARY := Color("#4E6E8A")` | ✅ **已同步**（S3B 落地：源码退役旧名并新增 `HUD_COLOR_DANGER_CB`/`HUD_COLOR_BOUNDARY`/`HUD_COLOR_FOCUS`） |
-| `design/gdd/systems/patrol-ai.md`（§ 色盲行） | 「色盲模式替换为 `#C8862F` 高亮+图标（C-06）」 | 替换为 `#F0C070` | ⏳ **待文策渊同步**（GDD 域） |
-| `design/gdd/systems/core-hud-a11y.md` §7 | 旧 C-06 口径 | 同上 | ⏳ **待文策渊同步**（GDD 域） |
+| `design/gdd/systems/patrol-ai.md`（§ 色盲行） | 「色盲模式替换为 `#C8862F` 高亮+图标（C-06）」 | 替换为 `#F0C070` | ✅ **已同步**（S3B 收口，文策渊核实；GDD §7 L71 现 `#F0C070` + 更正说明 L72-73） |
+| `design/gdd/systems/core-hud-a11y.md` §7 | 旧 C-06 口径 | 同上 | ✅ **已同步**（S3B 收口，文策渊核实；GDD §7 L62/L111 现 `#F0C070` + 更正说明 L63） |
 
-> **⚠️ 运行时提醒**：在 `hud_colors.gd:36` 改动落地前，色盲模式在**运行时**仍按旧口径（Alarm-CB = `#C8862F`）执行，亮度塌缩问题依然存在。本轮文档追认**不会自动生效于运行时**。
+> **✅ 运行时已对齐（S3B 落地）**：源码 `HUD_COLOR_ALARM_CB` 已退役、由 `HUD_COLOR_DANGER_CB`（=`#F0C070`）取代并新增 `HUD_COLOR_FOCUS`；色盲档警报在运行时现已生效为 `#F0C070`，亮度塌缩问题已消除（原 ⚠️ 运行时提醒作废）。
 
 ---
 

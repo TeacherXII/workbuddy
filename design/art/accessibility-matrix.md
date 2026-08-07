@@ -241,19 +241,19 @@
 >
 > **✅ 域外已同步（无需再跟）**：`docs/architecture/control-manifest.md` **C-06/C-07 已于 v0.2 同步**（程基岩，取值对齐 `#F0C070` / `#D64545`，阈值与编号语义不变）。
 >
-> **⏳ 域外仍持旧口径（不在本次授权范围，须责任人同步）**：
+> **✅ 域外旧口径已全部同步（S3B 收口）**：原各条目标「⏳ 域外仍持旧口径」，现源码常量退役 + 下游 GDD/Epic 已落地现行口径（`#D64545`→`#F0C070`），逐行 ✅ 如下：
 > | 文件 | 位置 | 旧口径 | 责任人 |
 > | --- | --- | --- | --- |
-> | `src/ui/hud_colors.gd` | L36 | `HUD_COLOR_ALARM_CB := HUD_COLOR_CAUTION`（=`#C8862F`，塌缩 1.00:1） | 程基岩（Batch C） |
-> | `production/sprints/batchc-impl-spec.md` | L146 / **L167** | L167 **明文论证**「SUSPICIOUS 与 ALERT 同为琥珀…C-05/C-07 仍成立」—— 即 FLAG-2 已推翻的旧理据 | 程基岩 |
+> | ~~`src/ui/hud_colors.gd`~~ | L36 | ~~`HUD_COLOR_ALARM_CB := HUD_COLOR_CAUTION`（=`#C8862F`，塌缩 1.00:1）~~ | ✅ **已同步**（S3B 落地：源码退役旧名 `HUD_COLOR_ALARM_CB`，由 `HUD_COLOR_DANGER_CB`=`#F0C070` 取代；见 hud-a11y-signature L221） |
+> | ~~`production/sprints/batchc-impl-spec.md`~~ | L146 / **L167** | ~~L167 **明文论证**「SUSPICIOUS 与 ALERT 同为琥珀…C-05/C-07 仍成立」旧理据~~ | ✅ **已同步**（Sprint 3，林绘澄；与 L252 为同文件重复登记，随 S3B 收口 → `#F0C070`） |
 > | ~~`design/ux/ux-spec.md`~~ | §ALERT L227 | ~~色盲模式→`#C8862F` 高亮+图标~~ | **✅ 已同步**（Sprint 3，林绘澄）→ `#F0C070` |
 > | ~~`design/gdd/systems/core-hud-a11y.md`~~ | L62 / L111 | ~~暴露 `#7A2E2E`→`#C8862F`~~ | **✅ 已同步**（Sprint 3，林绘澄）→ 警报 `#D64545`→`#F0C070` |
 > | ~~`design/gdd/systems/patrol-ai.md`~~ | L71 | ~~危险 `#7A2E2E` 必配图标；色盲→`#C8862F`~~ | **✅ 已同步**（Sprint 3，林绘澄）→ `#D64545` 必配图标；色盲→`#F0C070` |
 > | ~~`production/sprints/batchc-impl-spec.md`~~ | L26 / L167 / L835 | ~~D7 摘要 `CB = Caution`；L167「SUSPICIOUS 与 ALERT 同为琥珀」旧理据；L835 `ALARM_CB = #C8862F`~~ | **✅ 已同步**（Sprint 3，林绘澄）→ `#F0C070` |
-> | `design/gdd/sprint2-story-candidates.md` | L80 | 色盲 `#7A2E2E→#C8862F` | ⏳ **文策渊**（不在 Sprint 3 授权范围） |
-> | `production/epics/E09-core-hud-a11y.md` L58/L66/L100 · `E08-patrol-ai.md` L123 | 见各 AC | 色盲 `#7A2E2E→#C8862F`+图标 | ⏳ **主理人 / 程基岩**（不在 Sprint 3 授权范围） |
+> | ~~`design/gdd/sprint2-story-candidates.md`~~ | L80 | ~~色盲 `#7A2E2E→#C8862F`~~ | ✅ **已同步**（S3B 收口，文策渊核实）→ 现行口径 `#D64545`→`#F0C070` + 更正说明（S3-B 残留收口·林绘澄签字） |
+> | ~~`production/epics/E09-core-hud-a11y.md` L58/L66/L100 · `E08-patrol-ai.md` L123~~ | 见各 AC | ~~色盲 `#7A2E2E→#C8862F`+图标~~ | ✅ **已同步**（S3B 收口，文策渊核实）→ 现行口径 `#D64545`→`#F0C070` + 更正说明（S3-B 残留收口·林绘澄签字） |
 >
 > **Sprint 3 焦点环同步（O-1 Option A，全部 ✅ 本轮完成）**：`art-bible.md` §2.2/§9.4.1 · 本文行13/§3.1/§4 · `hud-a11y-signature.md` §4.1/§5.2 · `sprint2-asset-spec.md` §4.2/§4.7/§5.1.1 · `asset-manifest.md` 行14 · `core-hud-a11y.md` L66/L108 · `ux-spec.md` A14/§3.3 · `E11-save-manager.md` L104 · `sprint2-stories.md` L290。`save-system.md` §7 由文策渊同步 ✅。
-> **⏳ 仍待程基岩**：`src/ui/hud_colors.gd` 新增 `HUD_COLOR_FOCUS := Color("#F0C070")`（**新增常量，不改既有值**）+ `HUD_COLOR_ALARM_CB` 改 `#F0C070`（Batch C 遗留）。
+> **✅ 已同步（S3B 落地）**：`src/ui/hud_colors.gd` 新增 `HUD_COLOR_FOCUS := Color("#F0C070")` + 源码退役旧名 `HUD_COLOR_ALARM_CB`、改由 `HUD_COLOR_DANGER_CB`=`#F0C070`（Batch C 遗留已闭环；程基岩）。
 >
 > **历史评审记录不改**（`design/reviews/sprint0/1/2-*.md`、`production/sprints/sprint1-stories.md`）：属已冻结的时点快照，按治理惯例保留原文，不追溯改写。

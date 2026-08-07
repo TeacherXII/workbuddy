@@ -205,6 +205,56 @@ jobs:
           echo "::error::GUT reports failing tests — job fails."
           exit 1
 
+      # ── 4b. Assert-credibility lint (Sprint 3 Task #48; reinforces N-7 / N-7b) ──
+      # Catches assertions that print [Passed] but verified nothing — the exact
+      # failure mode behind the "184/184 green" incident where three defects
+      # shipped in a fully-green suite:
+      #   A-class  a message / garbage string was passed into a NON-text GUT
+      #            parameter (e.g. assert_signal_emitted_with_parameters' 4th arg
+      #            is `index:int`). GUT throws internally, the comparison is
+      #            skipped, and [Passed] is STILL printed — with "got <null>".
+      #   B-class  an expression crashed BEFORE the assert was evaluated (e.g. an
+      #            out-of-bounds split()[1]). The assert evaporates; GUT reports
+      #            one fewer assert and the test still passes.
+      # Neither is [Risky] and neither is a load failure, so the gates above
+      # (N-7 / N-7b) cannot see them. The linter has a built-in --selftest that
+      # runs FIRST, so a broken linter fails the job loudly instead of silently.
+      # Verified clean on main (local, python 3.13): selftest 7/7 planted caught,
+      # 0 false positives; A-class scan of tests/unit = 0 findings.
+      # Gated on GUT success: if GUT already failed the build, lint is redundant;
+      # if GUT is green but lint finds a silent no-op assertion, the build fails
+      # here — which is the entire point of this gate.
+      - name: Assert credibility lint (assert_lint.py)
+        if: steps.gut.outcome == 'success'
+        run: |
+          PY=python3
+          command -v python3 >/dev/null 2>&1 || PY=python
+          if ! command -v "$PY" >/dev/null 2>&1; then
+            echo "::error::assert_lint.py requires python3, none found in container — job fails."
+            exit 1
+          fi
+          echo ">>> assert_lint selftest (fail-closed on a broken linter)"
+          "$PY" tests/ci/assert_lint.py --selftest || exit 1
+          # A-class (GUT signature misuse) is the proven, zero-false-positive
+          # check — it is the gate. It catches assertions whose message/garbage
+          # string landed in a NON-text param (e.g. assert_signal_emitted_*
+          # 4th arg = index:int), where GUT throws internally, skips the
+          # comparison, yet still prints [Passed]. Verified clean on main
+          # (local python 3.13): 0 findings across tests/unit.
+          echo ">>> assert_lint A-class (FAIL-CLOSED gate)"
+          "$PY" tests/ci/assert_lint.py --tests-dir tests/unit || exit 1
+          # B-class (asserts that never executed) is REPORT-ONLY for now.
+          # Its current heuristic (static count vs runtime count) false-positives
+          # on DELIBERATELY branch-divergent tests that early-return (e.g.
+          # test_save_ui.gd:841 skips 1 of 6 asserts by design when the hue
+          # collapse is absent). Promoting it to fail-closed would red main for
+          # sound tests. Keep it visible via warning until the heuristic learns
+          # to tolerate if/return divergence (owner: engineering-lead).
+          echo ">>> assert_lint B-class (report-only)"
+          "$PY" tests/ci/assert_lint.py --tests-dir tests/unit --gut-log gut_output.txt || \
+            echo "::warning::assert_lint B-class flagged potential non-executing assertions (report-only; not gating). See engineering-lead follow-up."
+          echo ">>> assert_lint A-class clean — no silent no-op assertions."
+
       # ── 4. Post GUT summary as a public commit status (host step) ──
       # Runs on the runner HOST (not the godot-ci container) with a reliable
       # GITHUB_TOKEN, reads the summary file written by step 3 (workspace is
