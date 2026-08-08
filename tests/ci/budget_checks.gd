@@ -21,6 +21,16 @@
 #           tests/unit/test_guard_variants.gd) AND a WARN-ONLY CI surface in
 #           _check_guard_budget() (cap-vs-authority + scene scan) + the
 #           scan_guard_budget() reverse-assertion surface below.
+#   R-02 -> [Phase 6] combined realtime-light budget:
+#           InteractableRegistry.realtime_light_count() (interactable-held
+#           lights) + GuardSpawner.live_guards() lanterns, by tier
+#           (MVP<=12 / Tier2<=32). The TRUE budget is RUNTIME (registry +
+#           spawner are owned by a full level, not the Sprint 0 slice), so the
+#           authoritative check is the scan_realtime_light_budget() reverse-
+#           assertion surface (a level calls it at LOAD TIME) + the
+#           _check_realtime_light_budget() static CI proxy. INSTANCE_CAP is
+#           also linked to G-02's emitter budget at the accounting layer.
+#           WARN-ONLY, exit 0.
 #
 # [D15-A] WARN-ONLY: run() always returns a list (never exits non-zero) and
 #         never emits "[Risky]". Gate promotion is a Sprint 2 decision. [N-12]
@@ -55,6 +65,13 @@ const GuardSpawnerScript := preload("res://src/game/guard_spawner.gd")
 # R-02: dynamic point lights per screen (MVP<=12 / Tier2<=32).
 const LIGHT_BUDGET_MVP := 12
 const LIGHT_BUDGET_TIER2 := 32
+
+# G-02: sound-ring VFX emitter (SOURCE) budget per screen (<=8). The RENDERED
+# ring count is hard-FIFO-capped at RING_CAP (sound_propagation.gd), so G-02 is
+# never breached on screen — but the number of entities that COULD emit a ring
+# (DECOY / sound-routed TRAP) is a SOFT budget the accounting layer must link
+# INSTANCE_CAP against (perf-report §4). [R-02 follow-up]
+const RING_BUDGET := 8
 
 # R-04: volumetric fog base ceiling (control-manifest :21).
 const FOG_BASE_MAX := 0.05
@@ -123,6 +140,7 @@ func run(scan_root := "res://") -> PackedStringArray:
 	_check_interactable_instance_cap()
 	_check_a11y_values()
 	_check_guard_budget()
+	_check_realtime_light_budget()
 	return _captured
 
 
@@ -365,6 +383,19 @@ func _check_interactable_instance_cap() -> void:
 			"INSTANCE_CAP %d exceeds the R-02 Tier2 light budget (%d)" % [cap, LIGHT_BUDGET_TIER2],
 			"interactable_registry.gd -> an all-LIT level could break R-02")
 
+	# ①b Link INSTANCE_CAP to G-02's emitter (SOURCE) budget. A level of all
+	#    DECOY / sound-routed TRAP rows could push
+	#    InteractableRegistry.sound_ring_emitter_count() past G-02's 8; G-02's
+	#    RING_CAP FIFO still caps the RENDERED rings at 8 (no hard breach on
+	#    screen), but the emitter/source budget is over-subscribed. Surface it
+	#    WARN-ONLY under its OWN id (distinct from interactable-instance-cap, so
+	#    the E07-S8 "no scene over cap" check keeps its precise meaning) so the
+	#    lead sees the soft linkage (perf-report §4). [R-02]
+	if cap > RING_BUDGET:
+		_warn("interactable-g02-emitter",
+			"INSTANCE_CAP %d exceeds the G-02 sound-ring emitter budget (%d)" % [cap, RING_BUDGET],
+			"interactable_registry.gd -> an all-emitter level over-subscribes G-02's source budget (RING_CAP still caps rendered rings at %d)" % RING_BUDGET)
+
 	# ② Per-scene static placement count.
 	var worst := 0
 	var worst_file := ""
@@ -554,6 +585,37 @@ func _check_guard_budget() -> void:
 			   GuardSpawnerScript.GUARD_BUDGET_TIER2, GUARD_BUDGET_TIER2_AUTH, placed])
 
 
+# --- @ci:realtime-light-budget (R-02, WARN-ONLY) --------------------------
+# R-02 combined realtime-light budget: interactable-held realtime lights
+# (InteractableRegistry.realtime_light_count()) + live guard lanterns
+# (GuardSpawner.live_guards().size(), one lantern per guard) must stay
+# <= 12 MVP / <= 32 Tier2.
+#
+# ★ The TRUE budget is a RUNTIME quantity: the registry and spawner are live
+#   objects a FULL LEVEL owns — the Sprint 0 slice has neither
+#   (sprint0_bootstrap.gd :168 "The slice has no GuardSpawner /
+#   InteractableRegistry"). So the authoritative enforcement is the
+#   reverse-assertion surface scan_realtime_light_budget(), which a level calls
+#   at LOAD TIME with the live counts, and which test_budget_assert.gd
+#   reverse-asserts (N-11/N-12). This STATIC proxy is a CI fail-safe: it counts
+#   the realtime lights + scene-placed guards an author COULD bake into a .tscn
+#   and warns if that combination alone could blow the conservative MVP rung.
+#   Honest real-node scan, not a stub.
+func _check_realtime_light_budget() -> void:
+	var before := _captured.size()
+	for f in _list_tscn():
+		var lights := _count_node_types(f, ["OmniLight3D", "SpotLight3D"])
+		var guards := _count_guard_script_refs(f)
+		var total := lights + guards
+		if total > LIGHT_BUDGET_MVP:
+			_warn("realtime-light-budget",
+				"scene realtime lights %d + placed guards %d = %d exceeds R-02 MVP cap %d"
+					% [lights, guards, total, LIGHT_BUDGET_MVP],
+				f.get_file())
+	if _captured.size() == before:
+		prints("[CI:budget][OK][realtime-light-budget] no .tscn combines placed lights + guards over the MVP realtime-light cap (%d)" % LIGHT_BUDGET_MVP)
+
+
 ## Reverse-assertion surface (N-11/N-12): hand in a guard count + tier and get
 ## the emitted warning ids back, so a GUT test can prove an over-budget count
 ## really produces [WARN][guard-instance-budget] instead of the scan rotting
@@ -563,6 +625,51 @@ func scan_guard_budget(count: int, for_tier: int) -> PackedStringArray:
 	var cap: int = GUARD_BUDGET_TIER2_AUTH if for_tier == GuardSpawnerScript.Tier.TIER2 else GUARD_BUDGET_MVP_AUTH
 	for w in GuardSpawnerScript.budget_warnings(count, for_tier):
 		_warn(w, "active guards %d > cap %d" % [count, cap], "injected count (reverse-assert surface)")
+	return _captured
+
+
+## Reverse-assertion surface (N-11/N-12): assert the INSTANCE_CAP → R-02 / G-02
+## linkage is LIVE. Hand in a cap constant and get back the emitted warning ids;
+## a GUT test proves a silent cap bump past either budget is surfaced instead of
+## the scan rotting green (the QA gap N-11/N-12 names).
+func scan_instance_cap_linkage(cap: int) -> PackedStringArray:
+	_captured = PackedStringArray()
+	if cap > LIGHT_BUDGET_TIER2:
+		_warn("interactable-instance-cap",
+			"INSTANCE_CAP %d exceeds the R-02 Tier2 light budget (%d)" % [cap, LIGHT_BUDGET_TIER2],
+			"injected cap constant (reverse-assert surface)")
+	if cap > RING_BUDGET:
+		_warn("interactable-g02-emitter",
+			"INSTANCE_CAP %d exceeds the G-02 sound-ring emitter budget (%d)" % [cap, RING_BUDGET],
+			"injected cap constant (reverse-assert surface)")
+	return _captured
+
+
+## R-02 combined realtime-light budget (registry lights + guard lanterns).
+## Reverse-assertion surface (N-11/N-12): feed REAL runtime counts and get the
+## emitted warning id back so a GUT test proves an over-budget LOAD really warns
+## instead of the scan rotting green. The combined budget is a RUNTIME quantity
+## (InteractableRegistry.realtime_light_count() + GuardSpawner.live_guards()
+## .size()); a full level calls this at LOAD TIME:
+##
+##     var warns := BudgetChecks.new().scan_realtime_light_budget(
+##         registry.realtime_light_count(), spawner.live_guards().size(),
+##         spawner.tier)
+##     if not warns.is_empty():
+##         push_warning("R-02 realtime-light budget exceeded: " + " ".join(warns))
+##
+## It WARN-ONLY returns the id (never exits, never throws) so the caller keeps
+## its own exit code 0. [D15-A]/[N-12] apply.
+func scan_realtime_light_budget(realtime_lights: int, guard_lanterns: int, for_tier: int) -> PackedStringArray:
+	_captured = PackedStringArray()
+	var cap: int = LIGHT_BUDGET_TIER2 if for_tier == GuardSpawnerScript.Tier.TIER2 else LIGHT_BUDGET_MVP
+	var total := realtime_lights + guard_lanterns
+	if total > cap:
+		_warn("realtime-light-budget",
+			"realtime lights %d (interactables %d + guard lanterns %d) exceed R-02 %s cap %d"
+				% [total, realtime_lights, guard_lanterns,
+					"Tier2" if for_tier == GuardSpawnerScript.Tier.TIER2 else "MVP", cap],
+			"runtime aggregation (load-time accounting)")
 	return _captured
 
 

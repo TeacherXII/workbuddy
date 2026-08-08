@@ -12,6 +12,7 @@ const HudColors := preload("res://src/ui/hud_colors.gd")
 const LightModel := preload("res://src/game/light_model.gd")
 const BudgetChecks := preload("res://tests/ci/budget_checks.gd")
 const GuardSpawnerScript := preload("res://src/game/guard_spawner.gd")
+const InteractableRegistryScript := preload("res://src/game/interactables/interactable_registry.gd")
 
 const CI_YML := "res://.github/workflows/ci.yml"
 const BUDGET_ASSERT := "res://tests/ci/budget_assert.gd"
@@ -158,3 +159,67 @@ func test_budget_assert_emits_warn_on_guard_overflow() -> void:
 	var small := bc.scan_guard_budget(3, GuardSpawnerScript.Tier.MVP)
 	assert_false(small.has("guard-instance-budget"),
 		"G-01 mirror: 3 MVP-area guards (< cap) must stay clean [N-12]")
+
+
+func test_budget_assert_emits_warn_on_realtime_light_overflow() -> void:
+	# R-02 (Phase 6 engineering-followups) — N-11/N-12 REVERSE ASSERTION for the
+	# combined realtime-light budget. Same gap QA flagged: a scanner that can
+	# never fire rots green. We inject REAL over-budget runtime counts into
+	# BudgetChecks.scan_realtime_light_budget() and prove it emits
+	# [WARN][realtime-light-budget]; an equal-to-cap count must stay clean (the
+	# mirror half, so "12 > 12" / "32 > 32" can never sneak in as a false red).
+	var bc := BudgetChecks.new()
+
+	# ① MVP: 13 > 12 must WARN; exactly 12 must NOT.
+	var over_mvp := bc.scan_realtime_light_budget(13, 0, GuardSpawnerScript.Tier.MVP)
+	assert_true(over_mvp.has("realtime-light-budget"),
+		"R-02 reverse: 13 realtime lights (MVP) > cap 12 MUST emit [WARN][realtime-light-budget] [N-11]")
+	var at_mvp := bc.scan_realtime_light_budget(12, 0, GuardSpawnerScript.Tier.MVP)
+	assert_false(at_mvp.has("realtime-light-budget"),
+		"R-02 mirror: exactly 12 (== cap) must NOT warn (anti-rot boundary) [N-12]")
+
+	# ② Tier2: 33 > 32 must WARN; exactly 32 must NOT.
+	var over_t2 := bc.scan_realtime_light_budget(0, 33, GuardSpawnerScript.Tier.TIER2)
+	assert_true(over_t2.has("realtime-light-budget"),
+		"R-02 reverse: 33 guard lanterns (Tier2) > cap 32 MUST emit [WARN][realtime-light-budget] [N-11]")
+	var at_t2 := bc.scan_realtime_light_budget(0, 32, GuardSpawnerScript.Tier.TIER2)
+	assert_false(at_t2.has("realtime-light-budget"),
+		"R-02 mirror: exactly 32 (== cap) must NOT warn (anti-rot boundary) [N-12]")
+
+	# ③ COMBINED: realtime_lights=10 + guard_lanterns=3 = 13 > 12 (MVP) must WARN.
+	var combined := bc.scan_realtime_light_budget(10, 3, GuardSpawnerScript.Tier.MVP)
+	assert_true(combined.has("realtime-light-budget"),
+		"R-02 combined: 10 interactable lights + 3 guard lanterns = 13 > 12 (MVP) MUST warn [N-11]")
+
+	# ④ Below cap must stay clean (small mixed population).
+	var small := bc.scan_realtime_light_budget(4, 2, GuardSpawnerScript.Tier.MVP)
+	assert_false(small.has("realtime-light-budget"),
+		"R-02 mirror: 4 lights + 2 lanterns = 6 (< MVP cap 12) must stay clean [N-12]")
+
+
+func test_budget_assert_instance_cap_links_r02_g02() -> void:
+	# R-02 follow-up — INSTANCE_CAP must stay linked to BOTH R-02 (Tier2 light
+	# 32) and G-02 (sound-ring emitter 8) at the accounting layer. Reverse-assert
+	# the linkage is LIVE so a silent cap bump past either budget surfaces
+	# (N-11/N-12), closing the "rots-while-green" gap.
+	var bc := BudgetChecks.new()
+
+	# ① The shipped cap (16) over-subscribes G-02's emitter budget (8) but is
+	#    within R-02's Tier2 light cap (32) → the G-02 linkage must fire under
+	#    its own id (interactable-g02-emitter), distinct from the R-02 cap id.
+	var shipped := bc.scan_instance_cap_linkage(InteractableRegistryScript.INSTANCE_CAP)
+	assert_true(shipped.has("interactable-g02-emitter"),
+		"R-02/G-02 linkage: INSTANCE_CAP %d over-subscribes G-02 emitter budget 8 MUST warn [N-11]"
+			% InteractableRegistryScript.INSTANCE_CAP)
+	assert_false(shipped.has("interactable-instance-cap"),
+		"R-02/G-02: shipped cap 16 is within R-02 Tier2 32, so the R-02 cap id must stay clean [N-12]")
+
+	# ② A cap that respects both (<=8) must stay clean (mirror boundary).
+	var tight := bc.scan_instance_cap_linkage(8)
+	assert_false(tight.has("interactable-instance-cap"),
+		"R-02/G-02 mirror: cap 8 (== G-02) and <= R-02 Tier2 must NOT warn [N-12]")
+
+	# ③ A cap past R-02 Tier2 (33) must warn via the R-02 branch.
+	var past_r02 := bc.scan_instance_cap_linkage(33)
+	assert_true(past_r02.has("interactable-instance-cap"),
+		"R-02 linkage: cap 33 > R-02 Tier2 32 MUST warn [N-11]")

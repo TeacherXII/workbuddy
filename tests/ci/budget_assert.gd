@@ -40,6 +40,23 @@
 #                                   checks the shipped caps against the
 #                                   control-manifest authority and counts any
 #                                   scene-placed guard brains. WARN-ONLY, exit 0.
+#
+# [Phase 6 · R-02] Combined realtime-light budget joined the WARN-ONLY roster:
+#   @ci:realtime-light-budget  (R-02) — InteractableRegistry.realtime_light_count()
+#                                   (interactable-held lights) + GuardSpawner
+#                                   .live_guards() lanterns, by tier (MVP <= 12 /
+#                                   Tier2 <= 32). The TRUE budget is RUNTIME
+#                                   (registry + spawner are owned by a full level,
+#                                   not the Sprint 0 slice — sprint0_bootstrap.gd
+#                                   :168), so the authoritative check is the
+#                                   reverse-assertion surface
+#                                   scan_realtime_light_budget() (a level calls it
+#                                   at LOAD TIME) and test_budget_assert.gd
+#                                   reverse-asserts it (N-11/N-12). This CI scan
+#                                   (_check_realtime_light_budget) is a static
+#                                   proxy over placed lights + guards. INSTANCE_CAP
+#                                   is also linked to G-02's emitter budget
+#                                   (perf-report §4). WARN-ONLY, exit 0.
 
 extends SceneTree
 
