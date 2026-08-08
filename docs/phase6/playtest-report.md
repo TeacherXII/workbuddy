@@ -79,9 +79,9 @@ Orphans: 32.0 total (GUT note: excludes GUT-freed & pre-run orphans)
 | **Major** | Rolling checkpoint never written during gameplay → `restore_checkpoint()` is a no-op on first soft-fail; core-loop "save/restore" half not closed in live play (escalates to **Blocker** for the full game) | SaveManager + PatrolAI (D9 seam) | No `write_slot(CHECKPOINT_SLOT_ID, …)` gameplay caller in `src/`; `save_ui_model.gd` skips checkpoint row (L704) and SaveSlotsScreen not mounted (`sprint0_bootstrap.gd:102-118`); safe no-op at `save_manager.gd:650-654`; writer scaffolding exists (`save_manager.gd:251,258`) | Add a gameplay-side checkpoint producer (checkpoint volume/trigger or throttled autosave) invoking `write_slot(CHECKPOINT_SLOT_ID, …)`. Until then treat soft-fail rollback as **unverified-in-live-play** | **YES** (gameplay writer) |
 | **Minor** | A-0N audio-a11y tiering (Basic/Standard/Comprehensive) modeled but no live gameplay consumption observed in the slice | A11ySettings + AudioDirector | `a11y_settings.gd` carries tiers; `AudioDirector` autoload (`project.godot:40`); `sprint0_bootstrap.gd` shows no A-0N tier applied to runtime audio; no test asserts live audio-tier reachability | Audio team: confirm `AudioDirector` applies the A-0N tier at runtime; add a GUT assertion for audio-tier wiring | Likely (audio consumption) |
 | **Minor** | 32 GUT orphans + "ObjectDB instances leaked at exit" + "4 resources still in use at exit" | Test harness / teardown | `local_gut.txt:5557-5569`; GUT note excludes pre-run/GUT-freed orphans; `test_interactables.gd` proves production RefCounted leak-free (`leaked_count()==0`) | **VERIFIED-CLOSED (Phase 6 R-02/D3/F-3 follow-up):** harness-only 已通过 `Godot --headless … -gexit --verbose` 确认（见 §7）；无需生产修复，不新增断言（lean） | **VERIFIED-CLOSED** (harness-only) |
-| **Minor** | Test-design: soft-fail test verifies the seam fires (spy sink), not that a real checkpoint slot is produced | Test coverage | `tests/unit/test_patrol_ai.gd:449` (reverse-arity paired w/ `test_save_manager.gd`) | Add integration test: real soft-fail → assert checkpoint slot file produced → assert restore restores state | YES (test only) |
+| **Minor** | Test-design: soft-fail test verifies the seam fires (spy sink), not that a real checkpoint slot is produced | Test coverage | `tests/unit/test_patrol_ai.gd:449` (reverse-arity paired w/ `test_save_manager.gd`) | **VERIFIED-CLOSED (Phase 6 D1 follow-up):** 缺口由 D1 集成测试 `test_checkpoint_integration.gd:135` 闭环（commit `1f08848`）——`:156-158` 用 `FileAccess.file_exists(slot_path)` 断言**真实磁盘槽文件**产生，`:169-200` 真实软失败→restore 非 no-op→世界回滚；旧 seam 测试 `test_patrol_ai.gd:449` 保留为单元层互补 | **VERIFIED-CLOSED** (by D1 integration test) |
 
-**Counts:** Blocker 0 · Major 1 · Minor 3.
+**Counts:** Blocker 0 · Major 1 · Minor 2（D4 已 VERIFIED-CLOSED，见 §8）.
 
 ---
 
@@ -131,3 +131,32 @@ Godot_v4.4.1-stable_win64_console.exe --headless \
 - 32 GUT orphans + 退出 "ObjectDB leaked" + "4 resources still in use" **全部源于测试 harness / 引擎退出清理**，非生产代码真实泄漏。
 - 与 `playtest-report.md:81` 原 "NO (verify)" 判定一致，现升级为 **VERIFIED-CLOSED**。
 - 按 spec「不强制加断言」：**仅登记，不改 `tests/` 断言、不碰 `src/`**。若未来 test-teardown 真实性受损（出现非 harness 节点泄漏），再回过头补 `queue_free`/生命周期修复。
+
+---
+
+## 8. D4 — 软失败测试只验 seam 验证关闭（Phase 6 D1 follow-up）
+
+**Verdict: VERIFIED-CLOSED（缺口由 D1 集成测试闭环）。不新增断言（lean）。**
+
+**Author:** 严守真（quality-lead）· **Date:** Phase 6 follow-up · **Engine:** Godot 4.4.1-stable (win64 console, headless)
+
+### 8.1 背景与根因
+Phase 6 Playtest 首轮（D1 实现前）登记 D4：`test_patrol_ai.gd:449` 的 `test_soft_fail_invokes_checkpoint_sink_once` 仅用 spy sink 验证「seam 触发」，**不验证真实检查点槽文件产生**；建议补集成测试覆盖「real soft-fail → assert checkpoint slot file produced → assert restore restores state」。
+
+### 8.2 闭环证据（D1 实现已顺手补齐）
+D1 检查点回路实现（commit `1f08848`，已 push）新增 `tests/unit/test_checkpoint_integration.gd:135 test_soft_fail_restores_world_from_checkpoint`，精确满足 D4 建议：
+- `:152-154` 真实触发 LIGHT_TOGGLE 成功 → `save_completed` 信号 → `SaveManager.write_slot` 真实写盘；
+- `:156-158` `var slot_path = _sm.slot_path(CHECKPOINT_SLOT_ID)` + `assert_true(FileAccess.file_exists(slot_path), "the checkpoint slot FILE must be produced on disk")` —— **断言真实磁盘槽文件产生**（非仅内存 `has_checkpoint`）；
+- `:169-173` 真实软失败（guard ALERT + exposure 超 1.2s grace）；
+- `:176-200` `checkpoint_restored` 非 no-op + 玩家位姿 / 双守卫 RETURN&0 / 灯 / 电荷全部回滚 + `restored_state` normalisation 形状断言。
+
+旧 seam 测试 `test_patrol_ai.gd:449` 保留为**单元层**验证（seam 触发 + 无 sink 不崩），与 D1 集成测试**互补**，不删。
+
+### 8.3 验证方法
+本地 Godot 4.4.1 console 跑 GUT（只看实时控制台真数，不看 `gut_output.txt`）：`test_soft_fail_restores_world_from_checkpoint` 通过；整体 `Scripts 22 / Tests 241 / Passing 241 / Asserts 1588 / Failing 0 / exit 0`，连跑两次计数一致（确定性绿）。
+
+### 8.4 结论
+- D4 登记的「只验 seam 不验真实槽文件」缺口，**已被 D1 集成测试在功能层面闭环**，无需再写新测试。
+- 与 `playtest-report.md:82` 原「YES (test only)」判定一致，现升级为 **VERIFIED-CLOSED**。
+- 按 lean 原则：仅登记关闭，**不新增断言、不碰 `src/`**。
+- 注：本报告 §6 readiness 描述（「One Major functional gap … keeps the core loop's save/restore half open」）写于 D1 实现前，现已过时——D1 Major 已由 commit `1f08848` 闭环，以 D1 收口结论为准。
