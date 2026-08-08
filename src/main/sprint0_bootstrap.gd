@@ -22,6 +22,13 @@ var _sound: SoundPropagator = null   # G1: canonical (sole) owner of bus.sound_e
 var _player: Marker3D = null
 var _guard: Marker3D = null
 
+# Phase 6, D1 — checkpoint loop nodes. Unlike SaveSlotsScreen (deliberately NOT
+# mounted in the slice), the restore consumer is a HARD dependency of the core
+# loop, so it is wired here. The producer captures the world diff on safe-progress
+# triggers; both resolve SaveManager/EventBus via their groups at _ready.
+var _checkpoint_producer: CheckpointProducer = null
+var _checkpoint_applier: CheckpointApplier = null
+
 
 func _ready() -> void:
 	_register_input()
@@ -142,6 +149,12 @@ func _setup_scene() -> void:
 func _wire_signals() -> void:
 	if _bus == null or _step == null or _vc == null:
 		return
+	# Phase 6, D1 — the player now exists (built in _setup_scene); hand it to the
+	# checkpoint nodes so a restore can reposition the player to the snapshot.
+	if _checkpoint_producer != null:
+		_checkpoint_producer.player_node = _player
+	if _checkpoint_applier != null:
+		_checkpoint_applier.player_node = _player
 	_step.player_step_committed.connect(_bus.player_step_committed.emit)
 	# G1 (S1C-FIX-01): the legacy StepCommit.sound_emitted -> bus bridge is
 	# removed. SoundPropagator (E06) is now the sole owner of EventBus
@@ -151,6 +164,18 @@ func _wire_signals() -> void:
 	# emitter: its _ready() binds player_step_committed -> emit(enriched).
 	_sound.set_event_bus(_bus)
 	add_child(_sound)
+
+	# Phase 6, D1 — mount the checkpoint write-end + restore-end. The slice has no
+	# GuardSpawner / InteractableRegistry, so those collaborators stay null here;
+	# a full level wires them. The producer/applier resolve SaveManager + EventBus
+	# via their groups on _ready, and player_node is assigned in _wire_signals
+	# (after _setup_scene builds _player).
+	_checkpoint_producer = CheckpointProducer.new()
+	_checkpoint_producer.light_model = _light
+	add_child(_checkpoint_producer)
+	_checkpoint_applier = CheckpointApplier.new()
+	_checkpoint_applier.light_model = _light
+	add_child(_checkpoint_applier)
 	# E05 contract: forward the raw vision stimulus onto the bus. Other
 	# consumers (GuardBrain, telemetry) subscribe here. KEEP.
 	_vc.vision_stimulus.connect(_bus.vision_stimulus.emit)

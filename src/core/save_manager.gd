@@ -154,6 +154,25 @@ func configure_paths(save_dir: String, prefs_path: String, legacy_a11y_path := "
 	corrupt_slots = {}
 	# A new save dir has its own orphans; the previous scan says nothing about it.
 	_staging_recovery_done = false
+	# Reset the WRITE cooldown sentinel too. _last_checkpoint_write_ms is shared
+	# process-wide on this (autoload) node; without this reset a later test that
+	# writes a checkpoint within CHECKPOINT_WRITE_COOLDOWN of a PRIOR test's write
+	# is silently throttled (write_slot emits save_completed(false) and returns
+	# early, leaving _checkpoint_cache empty) — a non-deterministic test-isolation
+	# failure. The sentinel matches the field's initial value, so a fresh test
+	# always sees "no write yet". Production never calls configure_paths, so this
+	# is purely a test-reset.
+	_last_checkpoint_write_ms = -1_000_000
+	# The in-memory restore mirror is likewise transient; clear it so a stale
+	# restored_state from a prior test cannot leak into the next restore consumer.
+	restored_state = {}
+	# Observability counters are process-wide on this (autoload) node and must be
+	# reset per isolated save dir too, or absolute-count assertions (e.g.
+	# test_save_manager's "write_count == 1/2", test_checkpoint_volume's debounce
+	# counts) accumulate across every checkpoint write in the whole run instead of
+	# starting fresh for each test. Neither counter drives control flow.
+	checkpoint_write_count = 0
+	last_slot_size_bytes = 0
 
 
 func get_save_dir() -> String:

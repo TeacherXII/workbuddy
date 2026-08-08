@@ -428,10 +428,7 @@ func _step_exposure(vis: float, dt: float) -> void:
 
 
 func _on_soft_fail(target: Node) -> void:
-	suspicion = 0.0
-	exposure_timer = 0.0
-	last_known = Vector3.ZERO
-	_set_fsm(EventBus.GuardState.RETURN)              # forced path (§3.1)
+	_reset_brain_to_return()                          # zeroing half of the capture
 	if _bus != null:
 		_bus.exposure_detected.emit(guard_id, target)
 	if _checkpoint_sink.is_valid():
@@ -440,6 +437,28 @@ func _on_soft_fail(target: Node) -> void:
 		# exist yet (architecture.md §2 one-way dependency). This is correct
 		# layering, not a workaround.
 		_checkpoint_sink.call()
+
+
+## The zeroing half of a soft fail: suspicion / exposure_timer / last_known back
+## to baseline and the FSM forced to RETURN ("lost them, go home"). Extracted
+## from _on_soft_fail so the CAPTURE path (_on_soft_fail) and the RESTORE path
+## (apply_checkpoint_reset, D1) cannot drift apart on the reset bookkeeping.
+## Deliberately does NOT emit exposure_detected — that is call-site specific.
+func _reset_brain_to_return() -> void:
+	suspicion = 0.0
+	exposure_timer = 0.0
+	last_known = Vector3.ZERO
+	_set_fsm(EventBus.GuardState.RETURN)              # forced path (§3.1)
+
+
+## D1 (Phase 6) — checkpoint-restore reset. Called by CheckpointApplier after a
+## restore_checkpoint() to unwind a guard to its patrol baseline WITHOUT
+## signalling a capture: the player is being rolled back to safety, not
+## re-caught, so a false exposure_detected here would re-trigger the very soft
+## fail this restore is cancelling. Resets exactly what _on_soft_fail resets
+## (via _reset_brain_to_return) and emits NOTHING.
+func apply_checkpoint_reset() -> void:
+	_reset_brain_to_return()
 
 
 # =============================================================================

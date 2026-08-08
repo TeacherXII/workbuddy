@@ -110,6 +110,14 @@ func get_light_state(light_id: int) -> int:
 	return _light_states.get(light_id, EventBus.LightState.LIT)
 
 
+## Read-only enumeration of every registered light id. CheckpointProducer needs
+## this to snapshot the full light set (light_model.gd §② collection source);
+## iterating `_lights` (not `_light_states`) guarantees a never-toggled light —
+## whose state is the LIT default — is still captured and restored correctly.
+func light_ids() -> Array:
+	return _lights.keys()
+
+
 func set_light_state(light_id: int, state: int) -> void:
 	_light_states[light_id] = state
 	# E04-S7: on a light change, only recompute the cell containing this light
