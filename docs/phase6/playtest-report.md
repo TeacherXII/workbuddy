@@ -78,7 +78,7 @@ Orphans: 32.0 total (GUT note: excludes GUT-freed & pre-run orphans)
 |---|---|---|---|---|---|
 | **Major** | Rolling checkpoint never written during gameplay → `restore_checkpoint()` is a no-op on first soft-fail; core-loop "save/restore" half not closed in live play (escalates to **Blocker** for the full game) | SaveManager + PatrolAI (D9 seam) | No `write_slot(CHECKPOINT_SLOT_ID, …)` gameplay caller in `src/`; `save_ui_model.gd` skips checkpoint row (L704) and SaveSlotsScreen not mounted (`sprint0_bootstrap.gd:102-118`); safe no-op at `save_manager.gd:650-654`; writer scaffolding exists (`save_manager.gd:251,258`) | Add a gameplay-side checkpoint producer (checkpoint volume/trigger or throttled autosave) invoking `write_slot(CHECKPOINT_SLOT_ID, …)`. Until then treat soft-fail rollback as **unverified-in-live-play** | **YES** (gameplay writer) |
 | **Minor** | A-0N audio-a11y tiering (Basic/Standard/Comprehensive) modeled but no live gameplay consumption observed in the slice | A11ySettings + AudioDirector | `a11y_settings.gd` carries tiers; `AudioDirector` autoload (`project.godot:40`); `sprint0_bootstrap.gd` shows no A-0N tier applied to runtime audio; no test asserts live audio-tier reachability | Audio team: confirm `AudioDirector` applies the A-0N tier at runtime; add a GUT assertion for audio-tier wiring | Likely (audio consumption) |
-| **Minor** | 32 GUT orphans + "ObjectDB instances leaked at exit" + "2 resources still in use at exit" | Test harness / teardown | `local_gut.txt:5557-5569`; GUT note excludes pre-run/GUT-freed orphans; `test_interactables.gd` proves production RefCounted leak-free (`leaked_count()==0`) | Run headless `--verbose` leak trace to confirm harness-only before publish; not yet a production-leak assertion | NO (verify) |
+| **Minor** | 32 GUT orphans + "ObjectDB instances leaked at exit" + "4 resources still in use at exit" | Test harness / teardown | `local_gut.txt:5557-5569`; GUT note excludes pre-run/GUT-freed orphans; `test_interactables.gd` proves production RefCounted leak-free (`leaked_count()==0`) | **VERIFIED-CLOSED (Phase 6 R-02/D3/F-3 follow-up):** harness-only 已通过 `Godot --headless … -gexit --verbose` 确认（见 §7）；无需生产修复，不新增断言（lean） | **VERIFIED-CLOSED** (harness-only) |
 | **Minor** | Test-design: soft-fail test verifies the seam fires (spy sink), not that a real checkpoint slot is produced | Test coverage | `tests/unit/test_patrol_ai.gd:449` (reverse-arity paired w/ `test_save_manager.gd`) | Add integration test: real soft-fail → assert checkpoint slot file produced → assert restore restores state | YES (test only) |
 
 **Counts:** Blocker 0 · Major 1 · Minor 3.
@@ -96,3 +96,38 @@ Orphans: 32.0 total (GUT note: excludes GUT-freed & pre-run orphans)
 **Audio team.** A-0N audio-a11y tiering consumption not observed in the slice (defect D2); `AudioDirector` is autoloaded. → Confirm at runtime the audio tier actually changes output and that `sound_emitted`/decoy paths respect it; add a wiring assertion. **Priority: medium (close A-0N reachability).**
 
 **Top routing item:** D1 (checkpoint writer) → gameplay/engine team, **highest priority** — it is the only item that blocks the core-loop closure.
+
+---
+
+## 7. D3 — 退出泄漏验证关闭（Phase 6 R-02/D3/F-3 follow-up）
+
+**Verdict: VERIFIED-CLOSED（harness-only，无生产泄漏）。不新增断言（lean）。**
+
+**Author:** 程基岩（engineering-lead）· **Date:** Phase 6 follow-up · **Engine:** Godot 4.4.1-stable (win64 console, headless)
+
+### 7.1 验证方法
+按 `engineering-followups-spec.md` D3 口径，用真实 console 跑（**只看实时控制台真数，不看 `gut_output.txt`**）：
+
+```
+Godot_v4.4.1-stable_win64_console.exe --headless \
+  -s addons/gut/gut_cmdln.gd -gdir=res://tests/unit -gexit --verbose
+→ exit code 0；GUT 全绿（22/241/241/1588，Failing 0）
+→ "WARNING: ObjectDB instances leaked at exit" + "ERROR: 4 resources still in use at exit"
+```
+
+### 7.2 `--verbose` 追踪分类（关键行）
+
+| 退出泄漏条目 | 分类 | 判定 |
+|---|---|---|
+| `Node`（多条 `Cannot get path … not in a scene tree`） | 测试内创建的节点（GuardBrain / VisionCone / Marker3D / SoundPropagator 等），headless 下游离、随退出惰性释放 | **harness-only** |
+| `RefCounted`（无脚本路径，多条） | 测试内创建的 RefCounted（registry / ledger 等），GUT teardown 未 free | **harness-only**（生产 `leaked_count()==0` 由 `test_interactables.gd` 证明） |
+| `GDScriptNativeClass` ×2 | 引擎内部原生类引用 | **engine/harness** |
+| `Resource still in use`：4 个 `.gd`（`light_model.gd` / `patrol_ai.gd` / `vision_cone.gd` / `guard_variant_params.gd`） | 静态 `preload` 引用（被 `budget_checks.gd` / `guard_spawner.gd` 等持有），进程退出前持久 | **harness/autoload 级**，非玩法对象 |
+| `Orphan StringName`（LightModel / _enter_tree / _lost_timer …） | Godot 退出时 StringName 缓存清理 | **engine 标准行为** |
+
+**关键反证（已有，未重测即成立）：** `test_interactables.gd` 断言生产 `RefCounted` 的 `leaked_count()==0` 且 weakref 为 null → **零生产泄漏**。本次 `--verbose` 未出现任何属于 `src/` 玩法对象且脱离测试生命周期的泄漏。
+
+### 7.3 结论
+- 32 GUT orphans + 退出 "ObjectDB leaked" + "4 resources still in use" **全部源于测试 harness / 引擎退出清理**，非生产代码真实泄漏。
+- 与 `playtest-report.md:81` 原 "NO (verify)" 判定一致，现升级为 **VERIFIED-CLOSED**。
+- 按 spec「不强制加断言」：**仅登记，不改 `tests/` 断言、不碰 `src/`**。若未来 test-teardown 真实性受损（出现非 harness 节点泄漏），再回过头补 `queue_free`/生命周期修复。
