@@ -17,14 +17,14 @@
 
 | 门控项 | 状态 | 说明 |
 |---|---|---|
-| 版本号字段存在且已填 | ✅ PASS | `project.godot:8` 已升 `config/version="0.1.0-alpha.2"`（本次 hotfix commit；基线 `3c8054a` 首补）。 |
+| 版本号字段存在且已填 | ✅ PASS | `project.godot:8` 已升 `config/version="0.1.0-alpha.3"`（本次构建洁净度 release；基线 `3c8054a` 首补）。 |
 | `export_presets.cfg` 存在 | ✅ PASS | 仓库根已生成 Windows Desktop 预设（commit `3c8054a`），`--export-release "Windows Desktop"` 可引用。 |
 | 本地 GUT 确定性绿 | ✅ PASS | 权威真数 `22 / 241 / 241 / 1588 / 0`，本地连跑两次确定性绿（主理人亲验）；Release 质量附件 `gut_output_0.1.0-alpha.2.txt` 已落盘。 |
 | 已知缺口公示 | ✅ 已登记 | 5 项已知风险全部写入 `changelog.md` 与 `go-live.md`，不掩盖。 |
 | 本地化范围 | ✅ PASS | 仅 zh-CN，无多语言框架（见 `localization.md`）。 |
 | 资产保真（F-3） | ✅ PASS | `.wav.import` 边车已 force-add（commit `eb78d32`），新克隆不再静默回退 QOA。 |
 
-**门控结论：GO · 发布质量门 PASS（内部封闭 alpha / prerelease）。** 本次为 hotfix `0.1.0-alpha.2`：非行为性启动日志修复（`look_at` → `look_at_from_position`，纯日志消除、对玩法零影响）+ 音频 headless 测试守卫（确定性绿 241/241/1588）；两个原 BLOCKER（版本字段 + `export_presets.cfg`）已于 `3c8054a` 清除。正式 QA 重签已按最小变更范围收敛为自动化门验证（GUT 确定性绿为权威）。非阻塞收尾：① 真机音频「真在播」仍需真机验证；② D2（A-0N 实机消费）继续递延。
+**门控结论：GO · 发布质量门 PASS（内部封闭 alpha / prerelease）。** 本次为构建洁净度 release `0.1.0-alpha.3`：采用**物理排除法**彻底剔除此前泄露的 dev-only 资产（`tests/`、`addons/gut/`、`docs/`、`tools/`、`.workbuddy/` 排除在导出源之外），**游戏逻辑零改动**（与 alpha.2 行为完全一致）；两个原 BLOCKER（版本字段 + `export_presets.cfg`）已于 `3c8054a` 清除。正式 QA 重签已按最小变更范围收敛为自动化门验证（GUT 确定性绿为权威）。非阻塞收尾：① 真机音频「真在播」仍需真机验证；② D2（A-0N 实机消费）继续递延。
 
 > 注：发布区间 `24fc2ef→5cf0431`（changelog 覆盖 gameplay 改动）；`762aec1`/`3c8054a` 为发布准备文档与构建配置，非玩家可见 gameplay 改动，不进 changelog 区间。
 
@@ -54,6 +54,9 @@ config/features=PackedStringArray("4.4")
 ## 3. 构建步骤（本地 Godot 4.4.1 headless export）
 
 > 因 GHA runner 宕机，CI 自动发布不可用；本地 Godot 4.4.1 console 验证为权威，构建产物由主理人手动导出后上传 GitHub Release。
+
+**⚠️ 物理排除流程（alpha.3 起强制执行，确保发布包持续洁净）：**
+> Godot 4.4.1 headless `--export-release` 下 `exclude_filter` 管不到 `.gd/.tscn` 资源目录（`addons/gut` 347 处、`tests` 96 处仍会进包），`include_filter` 被忽略。故导出前必须把 dev-only 目录（`tests/`、`addons/gut/`、`docs/`、`tools/`、`.workbuddy/`）**排除在导出源之外**（物理隔离 / 复制导出树时剔除这些目录），导出后清理临时导出源；`.tmp_gut/` 必须保留（含 Godot 二进制，且属非资源会被自动排除，移走会导致导出找不到模板）。导出命令须带 `GODOT_TEMPLATE_DIR` 指向已安装的 `export_templates/4.4.1.stable/`，否则 headless 下模板路径解析失败（报错「准备模板: 给定的导出路径不存在」）。
 
 **前置条件（BLOCKER 清除后才能跑）：**
 1. `export_presets.cfg` 已存在（§6 补救）。

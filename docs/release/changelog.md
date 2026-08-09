@@ -8,6 +8,27 @@
 
 ---
 
+## 0.1.0-alpha.3
+
+**发布区间：** `211ba0e` → `v0.1.0-alpha.3`（本次仅构建/发布流程变更，游戏逻辑零改动）
+**版本：** `0.1.0-alpha.3`（内部封闭 alpha，仅 zh-CN，GitHub Release 分发）
+**引擎：** Godot 4.4.1-stable
+**评审：** solo（GHA runner 宕机；本地 Godot 验证为权威）
+**changelog 依据：** 本小节记录构建/发布流程变更，**无 gameplay commit、无编造功能**。
+
+### Build
+- 采用**物理排除法**彻底剔除此前泄露的 dev-only 资产：导出时把 `tests/`、`addons/gut/`、`docs/`、`tools/`、`.workbuddy/` 排除在导出源之外（对仓库工作树零侵入），导出后清理临时导出源。
+- 根因：Godot 4.4.1 headless `--export-release` 下，`export_filter="all_resources"` 时 `include_filter` 被忽略（选择来自编辑器 dock，headless 无），`exclude_filter` 仅能剔除非资源目录，管不到 `.gd/.tscn` 资源目录（`addons/gut` 347 处、`tests` 96 处仍会进包）。config-only 修法不可行，**唯一可靠的 headless 手段是物理排除**。
+- 实证：alpha.3 pck 经格式无关字节路径扫描，`addons/gut / tests/ / docs/ / tools/` 路径计数**全为 0**；游戏资源 `src/main/`、`src/ui/`、`arts/` 均在包内。pck 体积由 alpha.2 的 ~3.9 MB 降至 ~0.21 MB。
+- **游戏逻辑零改动**（与 alpha.2 行为完全一致，仅发布包洁净度提升）。
+
+### Known Issues（沿用）
+- 真机音频「真在播」仍需真机验证（非阻塞）。
+- D2（A-0N 实机消费）继续递延。
+- 垂直切片无可视呈现层（用户已确认能跑就够了）。
+
+---
+
 ## 0.1.0-alpha.2
 
 **发布区间：** `5b9aa5b` → `3cf94a8`
