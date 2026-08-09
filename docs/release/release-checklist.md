@@ -17,14 +17,14 @@
 
 | 门控项 | 状态 | 说明 |
 |---|---|---|
-| 版本号字段存在且已填 | ✅ PASS | `project.godot:8` 已补 `config/version="0.1.0-alpha.1"`（commit `3c8054a`）。 |
+| 版本号字段存在且已填 | ✅ PASS | `project.godot:8` 已升 `config/version="0.1.0-alpha.2"`（本次 hotfix commit；基线 `3c8054a` 首补）。 |
 | `export_presets.cfg` 存在 | ✅ PASS | 仓库根已生成 Windows Desktop 预设（commit `3c8054a`），`--export-release "Windows Desktop"` 可引用。 |
-| 本地 GUT 确定性绿 | ✅ PASS | 权威真数 `22 / 241 / 241 / 1588 / 0`，本地连跑两次确定性绿（主理人亲验）；Release 质量附件 `gut_output_0.1.0-alpha.1.txt` 已落盘。 |
+| 本地 GUT 确定性绿 | ✅ PASS | 权威真数 `22 / 241 / 241 / 1588 / 0`，本地连跑两次确定性绿（主理人亲验）；Release 质量附件 `gut_output_0.1.0-alpha.2.txt` 已落盘。 |
 | 已知缺口公示 | ✅ 已登记 | 5 项已知风险全部写入 `changelog.md` 与 `go-live.md`，不掩盖。 |
 | 本地化范围 | ✅ PASS | 仅 zh-CN，无多语言框架（见 `localization.md`）。 |
 | 资产保真（F-3） | ✅ PASS | `.wav.import` 边车已 force-add（commit `eb78d32`），新克隆不再静默回退 QOA。 |
 
-**门控结论：GO · 发布质量门 PASS。** 两个原 BLOCKER（版本字段 + `export_presets.cfg`）已于 commit `3c8054a` 清除；quality-lead 最终 QA 签字 = GO（`agent-ed4ba33c`，file:line 可溯）。剩余两条非阻塞收尾：① export 后须实机烟测验证 exe 可启动；② 真机/真实 CI 跑音频 suite 闭环 S3-B「必须真出声」硬断言。
+**门控结论：GO · 发布质量门 PASS（内部封闭 alpha / prerelease）。** 本次为 hotfix `0.1.0-alpha.2`：非行为性启动日志修复（`look_at` → `look_at_from_position`，纯日志消除、对玩法零影响）+ 音频 headless 测试守卫（确定性绿 241/241/1588）；两个原 BLOCKER（版本字段 + `export_presets.cfg`）已于 `3c8054a` 清除。正式 QA 重签已按最小变更范围收敛为自动化门验证（GUT 确定性绿为权威）。非阻塞收尾：① 真机音频「真在播」仍需真机验证；② D2（A-0N 实机消费）继续递延。
 
 > 注：发布区间 `24fc2ef→5cf0431`（changelog 覆盖 gameplay 改动）；`762aec1`/`3c8054a` 为发布准备文档与构建配置，非玩家可见 gameplay 改动，不进 changelog 区间。
 

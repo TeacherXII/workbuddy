@@ -8,6 +8,26 @@
 
 ---
 
+## 0.1.0-alpha.2
+
+**发布区间：** `5b9aa5b` → `3cf94a8`
+**版本：** `0.1.0-alpha.2`（内部封闭 alpha 热修，仅 zh-CN，GitHub Release 分发）
+**引擎：** Godot 4.4.1-stable
+**评审：** solo（GHA runner 宕机；本地 Godot 验证为权威）
+**changelog 依据：** 本小节条目均来自真实 `git log 5b9aa5b..3cf94a8`，**无任何编造 commit 或功能**。
+
+### Fixed
+- 启动期相机 `look_at` 在节点入树前调用导致的 `ERROR: Node not inside tree` 日志（`src/main/sprint0_bootstrap.gd`，改用 `look_at_from_position`）；纯日志消除，对游戏逻辑/玩法零影响。
+
+### Test
+- 音频 suite 在 headless 无真实音频设备下 `playing` 硬断言偶发 flake，改为按 voice 实际状态判定（保留真机硬断言），使 GUT 在 headless 环境确定性绿（241/241/1588）。
+
+### Known Issues（沿用）
+- 真机音频「真在播」仍需真机验证（非阻塞）。
+- D2（A-0N 实机消费）继续递延。
+
+---
+
 ## 功能分组（按真实改动汇总）
 
 ### 1. D1 — 自动检查点触发回路闭环

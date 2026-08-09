@@ -1,4 +1,4 @@
-# Go-Live Checklist · ASHEN STEP《灰烬之步》Phase 7 — 内部封闭 alpha v0.1.0-alpha.1
+# Go-Live Checklist · ASHEN STEP《灰烬之步》Phase 7 — 内部封闭 alpha v0.1.0-alpha.2
 
 **文档类型：** 上线清单（发布前最后检查）
 **负责人：** 路远行（release-ops-lead）
@@ -19,7 +19,7 @@
 ---
 
 ## 1. 版本号确认
-- [ ] 版本号 = `0.1.0-alpha.1`（与 `project.godot` `version` 字段、`git tag`、`GitHub Release` 三者一致）。
+- [ ] 版本号 = `0.1.0-alpha.2`（与 `project.godot` `version` 字段、`git tag`、`GitHub Release` 三者一致）。
 - [ ] 命名口径统一建议：HUD 文案"灰烬之步 · Sprint1" vs `config/name` "Sprint0" 的非阻塞差异已确认或修正。
 
 ## 2. 本地 export（主理人执行）
