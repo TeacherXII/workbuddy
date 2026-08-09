@@ -17,16 +17,16 @@
 
 | 门控项 | 状态 | 说明 |
 |---|---|---|
-| 版本号字段存在且已填 | ❌ **BLOCKER** | `project.godot` 的 `[application]` 段**无 `version=` 字段**，须补 `0.1.0-alpha.1`（见 §2）。 |
-| `export_presets.cfg` 存在 | ❌ **BLOCKER** | 仓库根目录**无 `export_presets.cfg`**，`--export-release <preset>` 无可引用预设，构建无法启动。补救步骤见 §6。 |
-| 本地 GUT 确定性绿 | ✅ PASS（待复跑确认） | 权威真数 `22 / 241 / 241 / 1588 / 0`（见 §5）。on-disk `gut_output.txt` 为旧值 `239/1578`，须重新生成。 |
+| 版本号字段存在且已填 | ✅ PASS | `project.godot:8` 已补 `config/version="0.1.0-alpha.1"`（commit `3c8054a`）。 |
+| `export_presets.cfg` 存在 | ✅ PASS | 仓库根已生成 Windows Desktop 预设（commit `3c8054a`），`--export-release "Windows Desktop"` 可引用。 |
+| 本地 GUT 确定性绿 | ✅ PASS | 权威真数 `22 / 241 / 241 / 1588 / 0`，本地连跑两次确定性绿（主理人亲验）；Release 质量附件 `gut_output_0.1.0-alpha.1.txt` 已落盘。 |
 | 已知缺口公示 | ✅ 已登记 | 5 项已知风险全部写入 `changelog.md` 与 `go-live.md`，不掩盖。 |
 | 本地化范围 | ✅ PASS | 仅 zh-CN，无多语言框架（见 `localization.md`）。 |
 | 资产保真（F-3） | ✅ PASS | `.wav.import` 边车已 force-add（commit `eb78d32`），新克隆不再静默回退 QOA。 |
 
-**门控结论：NO-GO（条件阻塞）。** 两个 BLOCKER（版本字段缺失 + `export_presets.cfg` 缺失）必须在主理人执行本地 export 前清除；二者均为配置层、非代码层，风险极低。其余质量门全绿。
+**门控结论：GO · 发布质量门 PASS。** 两个原 BLOCKER（版本字段 + `export_presets.cfg`）已于 commit `3c8054a` 清除；quality-lead 最终 QA 签字 = GO（`agent-ed4ba33c`，file:line 可溯）。剩余两条非阻塞收尾：① export 后须实机烟测验证 exe 可启动；② 真机/真实 CI 跑音频 suite 闭环 S3-B「必须真出声」硬断言。
 
-> 注：按发布纪律，BLOCKER 未清不放行，除非用户明确豁免。本清单不主张豁免。
+> 注：发布区间 `24fc2ef→5cf0431`（changelog 覆盖 gameplay 改动）；`762aec1`/`3c8054a` 为发布准备文档与构建配置，非玩家可见 gameplay 改动，不进 changelog 区间。
 
 ---
 
