@@ -5,6 +5,7 @@ config_version=5
 [application]
 
 config/name="ASHEN STEP Sprint0"
+config/version="0.1.0-alpha.1"
 run/main_scene="res://src/main/sprint0.tscn"
 config/features=PackedStringArray("4.4")
 
