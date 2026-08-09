@@ -139,7 +139,7 @@ func _setup_scene() -> void:
 	# Minimal camera so aim raycasting + HUD unproject have a projection.
 	var cam := Camera3D.new()
 	cam.position = Vector3(0, 12, -12)
-	cam.look_at(Vector3.ZERO, Vector3.UP)
+	cam.look_at_from_position(cam.position, Vector3.ZERO, Vector3.UP)
 	add_child(cam)
 
 	# One shadow box in the demo light model (cover-shadow §2 mock).
